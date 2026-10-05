@@ -1,3 +1,8 @@
+/** @jsxRuntime classic */
+/** @jsx h */
+/** @jsxFrag Fragment */
+// エンジンは JSX を大域の `h` で組む。上のプラグマは、tsconfig を読まない場所から
+// `bun test` したときも同じ組み方にするためのもの。
 import { isWithin, windowOf } from './window'
 import type { ShowWindow } from './window'
 import type { EngineInterface, Register, Timer } from 'claude-code'
@@ -114,6 +119,7 @@ const STOCK_BUTTON = 'stock-face'
  */
 async function restore($: EngineInterface, board: Board): Promise<void> {
   board.today = jstDayOf(await $.clock.now())
+  board.isHidden = (await $.store.get('board.hidden')) === true
   board.period = periodOf(await $.store.get('stock.period'))
 
   const charts = await $.store.get('stock.charts')
@@ -133,6 +139,13 @@ async function restore($: EngineInterface, board: Board): Promise<void> {
   await repaint($, board)
 }
 
+/** ボードを隠す／出すボタンの key。 */
+const HIDE_BUTTON = 'board-hide'
+const SHOW_BUTTON = 'board-show'
+
+/** 「隠す」ボタンが取る幅（`[ 隠す ]` の 8 セル＋間の 1）。 */
+const HIDE_COLS = 9
+
 /** 時間帯の出入りを見直す間隔（ミリ秒）。 */
 const WINDOW_CHECK_MS = 30_000
 
@@ -144,6 +157,8 @@ type Board = {
   readonly window: ShowWindow
   /** 今が時間帯の中か。`checkWindow` が 30 秒ごとに見直す。 */
   isOpen: boolean
+  /** 人が「隠す」を押したか。時間帯に入り直すと（翌日の夕方など）出す状態に戻る。 */
+  isHidden: boolean
   /** 見たい路線（設定 `lines`）。 */
   readonly wanted: readonly string[]
   /** 取りにいく間隔（ミリ秒）。 */
@@ -698,7 +713,7 @@ async function fetchTransit($: EngineInterface, board: Board): Promise<void> {
  * スピナーが枠を使うので、ここまで重ねると上限に触れる。待機中だけ流す。
  */
 async function stepMarquee($: EngineInterface, board: Board): Promise<void> {
-  if (!board.isShown || !board.isOpen || board.isWorking) {
+  if (!board.isShown || !board.isOpen || board.isHidden || board.isWorking) {
     return
   }
 
@@ -727,6 +742,12 @@ async function checkWindow($: EngineInterface, board: Board): Promise<void> {
   board.isOpen = isOpen
 
   if (isOpen) {
+    // 時間帯に入り直したら、前の晩に隠したままにはしない。
+    if (board.isHidden) {
+      board.isHidden = false
+      void $.store.set('board.hidden', false)
+    }
+
     void fetchWeather($, board)
     void fetchTransit($, board)
     void fetchAlerts($, board)
@@ -765,6 +786,7 @@ export const register: Register = (on, options) => {
     isShown: booleanOf(options['enabled'], true),
     window: windowOf(stringOf(options['showFrom'], '17:00'), stringOf(options['showUntil'], '24:00')),
     isOpen: false,
+    isHidden: false,
     wanted: linesOf(stringOf(options['lines'], '山手線,東急田園都市線')),
     trainMs: numberOf(options['trainRefreshSec'], 180, 60, 3600) * 1000,
     weatherMs: numberOf(options['weatherRefreshSec'], 600, 300, 3600) * 1000,
@@ -866,6 +888,23 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // ボードの「隠す」と、隠しているあいだ帯に出る「表示」。
+  on('ui.press', { element: HIDE_BUTTON }, async ($, e, next) => {
+    board.isHidden = true
+    await $.store.set('board.hidden', true)
+    $.ui.invalidate('ui.render')
+
+    return next(e)
+  })
+
+  on('ui.press', { element: SHOW_BUTTON }, async ($, e, next) => {
+    board.isHidden = false
+    await $.store.set('board.hidden', false)
+    $.ui.invalidate('ui.render')
+
+    return next(e)
+  })
+
   on('turn.start', ($, e, next) => {
     board.isWorking = true
 
@@ -904,13 +943,38 @@ export const register: Register = (on, options) => {
 
     const { Box, Text, Link, Button } = $.ui.resolve(e)
 
+    /**
+     * ボタンの押し込み。中身は `ui.press` フックで進めるので、ここは何もしない。
+     *
+     * （`$` をトップレベル以外の関数に閉じ込めると `validate --strict` が嫌がる）
+     */
+    const pressFace = (): void => undefined
+
+    // 隠しているあいだは「表示」ボタンを 1 行だけ出し、下に居るものはそのまま並べる。
+    if (board.isHidden) {
+      const show = (
+        <Box flexDirection="row">
+          <Button key={SHOW_BUTTON} label="天気・運行を表示" dimColor onPress={pressFace} />
+        </Box>
+      )
+
+      return beneath.type === 'engine' ? (
+        show
+      ) : (
+        <Box flexDirection="column">
+          {show}
+          {beneath}
+        </Box>
+      )
+    }
+
     // 株価パネルは 3 面目。横が足りないときは出さない（天気と掲示板を守る）。
     const hasStock =
       board.showStock && e.props.bodyColumns >= PANEL_WIDTH * 2 + BOARD_MIN + GUTTER * 3
     const sides = PANEL_WIDTH + GUTTER + (hasStock ? PANEL_WIDTH + GUTTER : 0)
-    const room = Math.max(PANEL_WIDTH + sides, e.props.bodyColumns - GUTTER)
+    const room = Math.max(PANEL_WIDTH + sides, e.props.bodyColumns - GUTTER - HIDE_COLS)
     const railsWidth = Math.max(BOARD_MIN, Math.min(room - sides, BOARD_MAX))
-    const width = sides + railsWidth
+    const width = sides + railsWidth + HIDE_COLS
     const alerts = board.showAlerts ? board.alerts : NO_ALERTS
     const panel = weatherPanel(
       board.sky,
@@ -950,13 +1014,6 @@ export const register: Register = (on, options) => {
           {run.text}
         </Text>
       ))
-
-    /**
-     * ボタンの押し込み。中身は `ui.press` フックで進めるので、ここは何もしない。
-     *
-     * （`$` をトップレベル以外の関数に閉じ込めると `validate --strict` が嫌がる）
-     */
-    const pressFace = (): void => undefined
 
     /** 見出しの行だけリンクにする。 */
     const panelOf = (lines: Line[], href: string): unknown =>
@@ -1032,6 +1089,9 @@ export const register: Register = (on, options) => {
               ))}
             </Box>
           ) : null}
+          <Box flexDirection="column">
+            <Button key={HIDE_BUTTON} label="隠す" dimColor onPress={pressFace} />
+          </Box>
         </Box>
         {beneath}
       </Box>
