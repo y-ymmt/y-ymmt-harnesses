@@ -45,6 +45,14 @@
       "author": { "name": "y-ymmt" },
       "source": "./plugins/reply-prism",
       "category": "productivity"
+    },
+    {
+      "name": "prompt-trail",
+      "description": "このセッションで打ったプロンプトを帯の棒の列か縦のペインに並べ、ホバーで読み・クリックでその位置へ飛び・入力欄へ戻して再利用できる Mod。棒の色でそのターンの結果が分かる（prompt-rail の改変版）",
+      "version": "0.1.0",
+      "author": { "name": "y-ymmt" },
+      "source": "./plugins/prompt-trail",
+      "category": "productivity"
     }
   ]
 }

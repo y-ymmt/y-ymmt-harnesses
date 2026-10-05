@@ -9,6 +9,7 @@ Claude Code 用のプラグイン（marketplace）。
 | `touch-tree` | このセッションで Claude が読んだ・編集したファイルを、リポジトリのツリーに沿ってペインに出す（`/touch-tree`） |
 | `next-prompts` | ターンが終わるたびに、次に打ちそうな依頼の候補（haiku が会話から作る）をプロンプトの上にボタンで並べる。押すとその文が入力欄に入る（送信はしない） |
 | `reply-prism` | 返事の表・コード・Mermaid の図・ツール行を色つきで描き直す（[prismantis](https://github.com/NahumLitvin/prismantis) の改変版）。パスをクリックでエディタで開く、表を Markdown・TSV・Slack 形式でコピー・列で並べ替え、長い表とコードを畳む、`本番` `DELETE` などを赤背景で目立たせる（`/reply-prism`） |
+| `prompt-trail` | このセッションで打ったプロンプトを帯の棒の列（または縦のペイン）に並べ、ホバーで読み・クリックでその位置へ飛ぶ（[prompt-rail](https://github.com/oikon48/prompt-rail) の改変版）。`[ 入力欄へ ]` `[ コピー ]` で再利用、棒の下の色でそのターンの結果（編集・失敗・拒否・中断）が分かる（`/prompt-trail`） |
 
 いずれも function hooks（Mods）で作っている。Claude Code 2.1.287 以降は追加の設定なしで動く。
 
@@ -21,6 +22,7 @@ claude plugin install tokyo-board@y-ymmt-harnesses
 claude plugin install touch-tree@y-ymmt-harnesses
 claude plugin install next-prompts@y-ymmt-harnesses
 claude plugin install reply-prism@y-ymmt-harnesses
+claude plugin install prompt-trail@y-ymmt-harnesses
 ```
 
 各プラグインの設定と仕組みは `plugins/<name>/README.md` を参照。
@@ -35,6 +37,7 @@ claude plugin install reply-prism@y-ymmt-harnesses
 - [touch-tree](plugins/touch-tree/README.md#動作環境と確かめた範囲)
 - [next-prompts](plugins/next-prompts/README.md#動作環境と確かめた範囲)
 - [reply-prism](plugins/reply-prism/README.md#動作環境と確かめた範囲)
+- [prompt-trail](plugins/prompt-trail/README.md#動作環境と確かめた範囲)
 
 表の「状態」の意味:
 
@@ -60,14 +63,17 @@ claude plugin install reply-prism@y-ymmt-harnesses
 
 ## プロンプト上の帯の表示順
 
-`tokyo-board`・`touch-tree`・`next-prompts` は、プロンプトの上の帯（`AbovePrompt`）を共有して描く。
-3 つとも入れたときは、読み込み順に関係なく次の並びになる。
+`tokyo-board`・`touch-tree`・`prompt-trail`・`next-prompts` は、プロンプトの上の帯（`AbovePrompt`）を共有して描く。
+4 つとも入れたときは、読み込み順に関係なく次の並びになる（括弧は `hooks/band.ts` の `BAND_ORDER` の値）。
 
 ```
-（天気・運行のボード。夕方や［表示］を押したとき）
-[ touch-tree を開く ]
-[ 天気・運行を表示 ]
-次の一手: [ 候補1 ] [ 候補2 ] …
+（天気・運行のボード。夕方や［表示］を押したとき）  ← tokyo-board（10）
+[ touch-tree を開く ]                               ← touch-tree（20）
+[ 天気・運行を表示 ]                                 ← tokyo-board（30）
+#3 ホバーしたプロンプトのカード  [ 入力欄へ ] [ コピー ]  ← prompt-trail（35）。カードの行・棒・色の 3 行
+│ │ ┃ │
+▀ ▀ ▀ ▀
+次の一手: [ 候補1 ] [ 候補2 ] …                      ← next-prompts（40）
 ──────────────────────
 ❯
 ```
@@ -76,8 +82,8 @@ claude plugin install reply-prism@y-ymmt-harnesses
   いない）。そこで各プラグインは、自分の行を並び順つきの枠（`key` が `y-ymmt-band:<順番>:<名前>` の `Box`）に
   入れる。先に `next(e)` で受け取った描画に枠があればいったんばらし、自分の枠と合わせて順番どおりに積み直す。
   どのプラグインが外側になっても、最後の結果は同じ並びになる
-- **並び順の定義**: 各プラグインの `hooks/band.ts`。3 つとも同じ中身なので、行を足す・順番を変えるときは
-  3 つとも揃える
+- **並び順の定義**: 各プラグインの `hooks/band.ts`。4 つとも同じ中身なので、行を足す・順番を変えるときは
+  4 つとも揃える
 - **1 つだけ入れたとき**: そのプラグインの行だけが出る
 - **この約束を知らない他の人のプラグインと併用したとき**: 相手の行は帯のいちばん上（相手が外側なら
   こちらの行の下）に出る。相手が `next(e)` を呼ばずに描くと、こちらの行が消えることがある

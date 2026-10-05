@@ -6,7 +6,7 @@
  * いったんばらしてから、自分の枠と合わせて並び順どおりに積み直す。
  * どのプラグインが外側になっても、最後に積み直した結果は同じ並びになる。
  *
- * tokyo-board / touch-tree / next-prompts が同じ中身のこのファイルを持つ。変えるときは 3 つとも揃える。
+ * tokyo-board / touch-tree / prompt-trail / next-prompts が同じ中身のこのファイルを持つ。変えるときは 4 つとも揃える。
  */
 
 /** 帯の上からの並び順。小さいほど上（入力欄から遠い）。 */
@@ -14,6 +14,7 @@ export const BAND_ORDER = {
   board: 10,
   touchTreeToggle: 20,
   boardToggle: 30,
+  promptTrail: 35,
   nextPrompts: 40,
 } as const
 

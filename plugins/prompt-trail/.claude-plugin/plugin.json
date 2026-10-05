@@ -1,0 +1,36 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "prompt-trail",
+  "version": "0.1.0",
+  "description": "このセッションで打ったプロンプトを帯の棒の列か縦のペインに並べ、ホバーで読み・クリックでその位置へ飛び・入力欄へ戻してもう一度使える Mod。棒の色でそのターンに起きたこと（編集・失敗・拒否・中断）が分かる（prompt-rail の改変版）",
+  "author": {
+    "name": "y-ymmt"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mod",
+    "navigation",
+    "transcript",
+    "prompts"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "表示の形",
+      "description": "horizontal: 入力欄の上の帯に棒の列で並べる。vertical: 会話の横のペインに 1 行ずつ並べる。off: 出さない。/prompt-trail horizontal|vertical|off でも変えられる",
+      "default": "horizontal",
+      "options": [
+        "off",
+        "vertical",
+        "horizontal"
+      ]
+    },
+    "colors": {
+      "type": "boolean",
+      "title": "ターンの結果で色分け",
+      "description": "棒の下（縦のペインでは行の頭）に、そのターンで起きたことの色を出す。拒否: 紫、中断: 黄、失敗: 赤、編集: 緑、読むだけ: 灰、実行中: 青。凡例は /prompt-trail help",
+      "default": true
+    }
+  }
+}
