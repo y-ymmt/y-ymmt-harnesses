@@ -53,14 +53,17 @@ const orderOf = (node: unknown): number | null => {
  *
  * - engine の素の描画（帯を使うプラグインが他に無いとき）は捨てる（従来どおり）
  * - 他所のプラグインの描画は枠を持たないので、そのまま帯のいちばん上に残す
+ *
+ * 返す並びの型は `mine` の要素の型（JSX なら描画の要素）。受け取った描画とその子も
+ * 同じ帯の描画なので、同じ型として返す（型だけの約束で、中身は調べない）。
  */
-export const stackBand = (beneath: unknown, mine: unknown[]): unknown[] => {
+export const stackBand = <T>(beneath: unknown, mine: readonly T[]): T[] => {
   const received =
     typeof beneath !== 'object' || beneath === null || (beneath as { type?: unknown }).type === 'engine'
       ? []
       : keyOf(beneath) === BAND_STACK
-        ? childrenOf(beneath)
-        : [beneath]
+        ? (childrenOf(beneath) as T[])
+        : [beneath as T]
   const items = [...received, ...mine].filter(item => item !== null && item !== undefined && item !== false)
   const foreign = items.filter(item => orderOf(item) === null)
   const slots = items

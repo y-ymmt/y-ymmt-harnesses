@@ -1,6 +1,6 @@
 import { expect, test, tier } from 'claude-code/testing'
 
-import { isWithin, minutesOf, windowOf } from '../hooks/window'
+import { isWithin, minutesOf, periodStartOf, windowOf } from '../hooks/window'
 
 tier('user')
 
@@ -43,4 +43,21 @@ test('読めない・同じ時刻なら終日出す', () => {
   expect(windowOf('00:00', '24:00')).toBeNull()
   expect(windowOf('09:00', '09:00')).toBeNull()
   expect(isWithin(null, at(3, 0))).toBe(true)
+})
+
+test('回の始まり: 中なら直近に開いた時刻、外なら直近に閉じた時刻', () => {
+  const w = windowOf('17:00', '24:00')
+  expect(periodStartOf(w, at(18, 0)), 'きょう 17:00 から').toBe(at(17, 0))
+  expect(periodStartOf(w, at(23, 59))).toBe(at(17, 0))
+  expect(periodStartOf(w, at(17, 0)), '開いたちょうど').toBe(at(17, 0))
+  expect(periodStartOf(w, at(11, 0)), 'きのうの 24:00（＝きょう 0:00）から').toBe(at(0, 0))
+  expect(periodStartOf(w, at(0, 0))).toBe(at(0, 0))
+  expect(periodStartOf(w, new Date(2026, 9, 4, 20, 0).getTime()), 'きのうの夜は別の回').toBe(new Date(2026, 9, 4, 17, 0).getTime())
+
+  const night = windowOf('22:00', '06:00')
+  expect(periodStartOf(night, at(2, 0)), '日をまたぐ: きのうの 22:00 から').toBe(new Date(2026, 9, 4, 22, 0).getTime())
+  expect(periodStartOf(night, at(12, 0)), 'きょうの 6:00 から').toBe(at(6, 0))
+  expect(periodStartOf(night, at(23, 0))).toBe(at(22, 0))
+
+  expect(periodStartOf(null, at(3, 0)), '終日なら回は 1 つ').toBe(0)
 })

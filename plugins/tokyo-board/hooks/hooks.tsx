@@ -3,10 +3,10 @@
 /** @jsxFrag Fragment */
 // エンジンは JSX を大域の `h` で組む。上のプラグマは、tsconfig を読まない場所から
 // `bun test` したときも同じ組み方にするためのもの。
-import { isWithin, windowOf } from './window'
+import { isWithin, periodStartOf, windowOf } from './window'
 import type { ShowWindow } from './window'
 import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, RenderElement, Timer } from 'claude-code'
 
 import {
   BOARD_BACK,
@@ -34,13 +34,14 @@ import {
 } from './transit'
 import type { LineStatus } from './transit'
 import {
-  FORECAST_URL,
   LATEST_TIME_URL,
   NO_FORECAST,
   amedasUrl,
   dailyOf,
+  forecastPageUrl,
   jmaForecastUrl,
   latestOf,
+  officeOf,
   openMeteoUrl,
   popOf,
   skyOf,
@@ -49,11 +50,11 @@ import type { Amedas, Forecast, Sky } from './weather'
 import {
   NO_ALERTS,
   QUAKE_URL,
-  WARNING_PAGE_URL,
   hasAlerts,
   newAlertsOf,
   parseWarnings,
   quakeOf,
+  warningPageUrl,
   warningUrl,
 } from './alerts'
 import type { Alerts } from './alerts'
@@ -88,18 +89,60 @@ const BOARD_MAX = 72
 /** 掲示板をこれより狭くはしない。 */
 const BOARD_MIN = 24
 
+/** ボタンで決めた表示を覚えておく `$.store` の key。 */
+const OVERRIDE_KEY = 'board.override'
+
 /**
- * 覚えておいたもの（ボタンで決めた表示）を戻す。
+ * `$.store` に覚えておく、ボタンで決めた表示。
+ *
+ * `period` は決めたときの回の始まり（`periodStartOf`）。別の回（きのうの夜、昼のあいだ
+ * など）に決めたものは、次のセッションでは捨てる。
+ */
+type StoredOverride = { readonly value: 'show' | 'hide'; readonly period: number }
+
+/**
+ * 覚えておいた値を読む。今の回に決めたものでなければ null（前の版の、回を持たない
+ * 文字列だけの値も、いつ決めたか分からないので捨てる）。
+ *
+ * @param stored `$.store` から読んだ値
+ * @param period 今の回の始まり
+ */
+function storedOverrideOf(stored: unknown, period: number): 'show' | 'hide' | null {
+  if (typeof stored !== 'object' || stored === null) return null
+
+  const { value, period: at } = stored as Partial<Record<keyof StoredOverride, unknown>>
+
+  return (value === 'show' || value === 'hide') && at === period ? value : null
+}
+
+/**
+ * セッションの始まりに、時間帯の中か外かと、前にボタンで決めた表示を、この順に読む。
+ *
+ * 時間帯の見直し（`checkWindow`）より前に済ませる。見直しが先に走ると、起動直後の
+ * 「外 → 中」を時間帯の出入りと取り違え、覚えておいた表示を消してしまう。
  *
  * @param $ エンジン
  * @param board このセッションの状態
  */
-async function restore($: EngineInterface, board: Board): Promise<void> {
-  const chosen = await $.store.get('board.override')
+async function start($: EngineInterface, board: Board): Promise<void> {
+  const nowMs = await $.clock.now()
+  const period = periodStartOf(board.window, nowMs)
+  const stored = await $.store.get(OVERRIDE_KEY)
+  const override = storedOverrideOf(stored, period)
 
-  board.override = chosen === 'show' || chosen === 'hide' ? chosen : null
+  board.isOpen = isWithin(board.window, nowMs)
+  board.period = period
+  board.override = override
+  board.isStarted = true
 
-  await repaint($, board)
+  // 別の回に決めた表示は捨て、いつもの時間割に戻す。
+  if (override === null && stored !== null && stored !== undefined) {
+    void $.store.set(OVERRIDE_KEY, null)
+  }
+
+  if (isVisible(board)) fetchAll($, board)
+
+  $.ui.invalidate('ui.render')
 }
 
 /** ボードを出し入れするボタンの key。帯のいちばん下に固定で置く。 */
@@ -116,6 +159,10 @@ type Board = {
   readonly window: ShowWindow
   /** 今が時間帯の中か。`checkWindow` が 30 秒ごとに見直す。 */
   isOpen: boolean
+  /** 今の回（時間帯の中か外かが続いているひとまとまり）の始まり（`periodStartOf`）。 */
+  period: number
+  /** `start` が済んだか。済むまでは時間帯の見直しをしない。 */
+  isStarted: boolean
   /**
    * 人がボタンで決めた表示。null なら時間帯どおり（中なら出す、外なら畳む）。
    * 時間帯の出入りのたびに null に戻し、いつもの時間割に従う。
@@ -134,6 +181,8 @@ type Board = {
   readonly longitude: number
   /** 警報・地震を見る区域（東京地方は `130010`）と、地震を出す時間の窓（分）。 */
   readonly warningArea: string
+  /** その府県コード（`130000`）。予報・警報の JSON と、気象庁のページのリンクに使う。 */
+  readonly office: string
   /** 見出しと震度の前に出す地名（設定 `placeName`）。 */
   readonly placeName: string
   readonly quakeWindowMin: number
@@ -197,11 +246,6 @@ function clockOf(nowMs: number): string {
   const at = new Date(nowMs)
 
   return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
-}
-
-/** 区域コードから府県コード（`130010` → `130000`）。 */
-function officeOf(area: string): string {
-  return `${area.slice(0, 2)}0000`
 }
 
 /** ブラウザの名乗りを付けて取りにいく。取れなければ null。 */
@@ -269,7 +313,7 @@ async function fetchWeather($: EngineInterface, board: Board): Promise<void> {
   }
 
   // 降水確率は気象庁のほうが細かい（6 時間ごと）。取れたらそちらで上書きする。
-  const jma = await getText($, jmaForecastUrl(officeOf(board.warningArea)))
+  const jma = await getText($, jmaForecastUrl(board.office))
 
   if (jma !== null) {
     try {
@@ -301,7 +345,7 @@ async function fetchAlerts($: EngineInterface, board: Board): Promise<void> {
   }
 
   const nowMs = await $.clock.now()
-  const warningText = await getText($, warningUrl(officeOf(board.warningArea)))
+  const warningText = await getText($, warningUrl(board.office))
   const quakeText = await getText($, QUAKE_URL)
   const before = board.alerts
   let warnings = before.warnings
@@ -498,7 +542,10 @@ async function setOverride($: EngineInterface, board: Board, override: 'show' | 
   const was = isVisible(board)
 
   board.override = override
-  await $.store.set('board.override', override)
+
+  const stored: StoredOverride | null = override === null ? null : { value: override, period: board.period }
+
+  await $.store.set(OVERRIDE_KEY, stored)
 
   if (!was && isVisible(board)) fetchAll($, board)
 
@@ -508,23 +555,32 @@ async function setOverride($: EngineInterface, board: Board, override: 'show' | 
 /**
  * 時間帯の出入りを見る。入った瞬間にまとめて取りにいき、出入りのたびに描き直す。
  *
- * 時間帯の外では取得も描画もしない（17:00 より前に通信しない）。
+ * 時間帯の外では取得も描画もしない（17:00 より前に通信しない）。セッションの始まりの
+ * 判定は `start` がするので、それが済むまでは何もしない。回の始まりも見るので、
+ * PC が眠っているあいだに時間帯をまたいだときも出入りとして扱う。
  */
 async function checkWindow($: EngineInterface, board: Board): Promise<void> {
-  const isOpen = board.isShown && isWithin(board.window, await $.clock.now())
+  if (!board.isStarted) {
+    return
+  }
 
-  if (isOpen === board.isOpen) {
+  const nowMs = await $.clock.now()
+  const isOpen = isWithin(board.window, nowMs)
+  const period = periodStartOf(board.window, nowMs)
+
+  if (isOpen === board.isOpen && period === board.period) {
     return
   }
 
   const was = isVisible(board)
 
   board.isOpen = isOpen
+  board.period = period
 
   // 時間帯の出入りでは人の指定を解き、いつもの時間割に戻す（昼に出したものは夜中に畳む、など）。
   if (board.override !== null) {
     board.override = null
-    void $.store.set('board.override', null)
+    void $.store.set(OVERRIDE_KEY, null)
   }
 
   if (!was && isVisible(board)) fetchAll($, board)
@@ -559,6 +615,8 @@ export const register: Register = (on, options) => {
     isShown: booleanOf(options['enabled'], true),
     window: windowOf(stringOf(options['showFrom'], '17:00'), stringOf(options['showUntil'], '24:00')),
     isOpen: false,
+    period: 0,
+    isStarted: false,
     override: null,
     wanted: linesOf(stringOf(options['lines'], '山手線,東急田園都市線')),
     trainMs: numberOf(options['trainRefreshSec'], 180, 60, 3600) * 1000,
@@ -568,6 +626,7 @@ export const register: Register = (on, options) => {
     latitude: numberOf(options['latitude'], 35.6895, -90, 90),
     longitude: numberOf(options['longitude'], 139.6917, -180, 180),
     warningArea: stringOf(options['warningArea'], '130010'),
+    office: officeOf(stringOf(options['warningArea'], '130010')),
     placeName: stringOf(options['placeName'], '東京'),
     quakeWindowMin: numberOf(options['quakeWindowMin'], 60, 5, 1440),
     showAlerts: booleanOf(options['alerts'], true),
@@ -601,9 +660,12 @@ export const register: Register = (on, options) => {
   }
 
   on('session.start', ($, e, next) => {
-    if (board.timers.length === 0 && board.isShown) {
-      // 前にボタンで決めた表示を戻す。
-      void restore($, board)
+    // 帯を描くのは端末（terminal）だけ。`-p`・SDK（e.surface が null）やデスクトップなど、
+    // 描かないセッションでは取得もタイマーも始めない。e.surface は `$.session.surfaces()` の
+    // 先頭で、端末があれば必ず先頭に来る。
+    if (board.timers.length === 0 && board.isShown && e.surface === 'terminal') {
+      // 時間帯の中か外かと、前にボタンで決めた表示を、この順に読む（読み終えるまで見直しは待つ）。
+      void start($, board)
       board.timers.push(
         $.clock.every(board.weatherMs, () => {
           void fetchWeather($, board)
@@ -628,8 +690,6 @@ export const register: Register = (on, options) => {
           void checkWindow($, board)
         }),
       )
-
-      void checkWindow($, board)
     }
 
     return next(e)
@@ -745,7 +805,7 @@ export const register: Register = (on, options) => {
     const newsAt = BOARD_ROWS - 2
 
     /** 1 行ぶんの色付きの字。 */
-    const runsOf = (line: Line): unknown =>
+    const runsOf = (line: Line): RenderElement[] =>
       line.map(run => (
         <Text
           color={run.color}
@@ -758,7 +818,7 @@ export const register: Register = (on, options) => {
       ))
 
     /** 見出しの行だけリンクにする。 */
-    const panelOf = (lines: Line[], href: string): unknown =>
+    const panelOf = (lines: Line[], href: string): RenderElement[] =>
       lines.map((line, index) =>
         index === 0 ? (
           <Link href={href}>{runsOf(line)}</Link>
@@ -770,7 +830,7 @@ export const register: Register = (on, options) => {
     const panels = (
       <Box key={slotKey(BAND_ORDER.board, 'tokyo-board')} flexDirection="column" width={width}>
         <Box flexDirection="row" gap={GUTTER}>
-          <Box flexDirection="column">{panelOf(panel, FORECAST_URL)}</Box>
+          <Box flexDirection="column">{panelOf(panel, forecastPageUrl(board.office))}</Box>
           <Box flexDirection="column">
             {rails.map((line, index) => {
               // ニュース行だけは、見出しごとに別々のリンクを張るため自分で組む。
@@ -804,7 +864,7 @@ export const register: Register = (on, options) => {
                 status !== undefined
                   ? diainfoUrl(status.id)
                   : index === alertAt
-                    ? WARNING_PAGE_URL
+                    ? warningPageUrl(board.office)
                     : null
 
               return href === null ? (

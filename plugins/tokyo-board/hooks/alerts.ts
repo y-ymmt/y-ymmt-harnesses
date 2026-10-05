@@ -124,9 +124,14 @@ export function warningUrl(area: string): string {
 /** 地震情報の一覧。 */
 export const QUAKE_URL = 'https://www.jma.go.jp/bosai/quake/data/list.json'
 
-/** 気象庁の「警報・注意報」ページ（⚠ 行のリンク先）。 */
-export const WARNING_PAGE_URL =
-  'https://www.jma.go.jp/bosai/warning/#area_type=japan&area_code=130000'
+/**
+ * 気象庁の府県の「警報・注意報」ページ（▲ 行のリンク先）。
+ *
+ * @param office 府県コード（`130000` など）
+ */
+export function warningPageUrl(office: string): string {
+  return `https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code=${office}`
+}
 
 /**
  * 警報・注意報の JSON から、見たい区域のぶんを読む。

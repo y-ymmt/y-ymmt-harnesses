@@ -12,7 +12,7 @@ import {
   weatherPanel,
 } from '../hooks/board'
 import type { LineStatus } from '../hooks/transit'
-import { amedasSlotOf, amedasUrl, latestOf, skyOf } from '../hooks/weather'
+import { amedasSlotOf, amedasUrl, latestOf, officeOf, skyOf } from '../hooks/weather'
 
 tier('user')
 
@@ -198,4 +198,16 @@ describe('警報行・ニュース行', () => {
       'ふだんは出ない',
     ).not.toContain('▲')
   })
+})
+
+test('区域コードから府県コード: ふつうは頭 2 桁 + 0000、北海道・鹿児島・沖縄は気象庁の表どおり', () => {
+  expect(officeOf('130010')).toBe('130000')
+  expect(officeOf('270000')).toBe('270000')
+  expect(officeOf('016010')).toBe('016000')
+  expect(officeOf('014020')).toBe('014100')
+  expect(officeOf('014030')).toBe('014030')
+  expect(officeOf('460010')).toBe('460100')
+  expect(officeOf('460040')).toBe('460040')
+  expect(officeOf('471010')).toBe('471000')
+  expect(officeOf('474020')).toBe('474000')
 })

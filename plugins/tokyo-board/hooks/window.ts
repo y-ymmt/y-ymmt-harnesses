@@ -69,3 +69,36 @@ export function isWithin(window: ShowWindow, nowMs: number): boolean {
     ? minute >= window.from && minute < window.until
     : minute >= window.from || minute < window.until
 }
+
+/**
+ * 今が入っている「回」の始まり（ミリ秒）。時間帯の中なら直近に開いた時刻、外なら直近に閉じた時刻。
+ *
+ * ボタンで決めた表示を、同じ回のあいだだけ覚えておくための目印に使う
+ * （17:00〜24:00 なら、きょう 18 時と 20 時は同じ回、きのうの 20 時やきょうの 11 時は別の回）。
+ * 時間帯が「いつでも」なら回は 1 つだけなので 0。
+ *
+ * @param window 時間帯（null はいつでも）
+ * @param nowMs 今（ミリ秒）
+ */
+export function periodStartOf(window: ShowWindow, nowMs: number): number {
+  if (window === null) {
+    return 0
+  }
+
+  const at = new Date(nowMs)
+  let latest = Number.NEGATIVE_INFINITY
+
+  // 境目（開く・閉じる）は日に 2 つ。きのうときょうのぶんを並べ、今より前でいちばん新しいものを取る。
+  // `new Date(年, 月, 日, 0, 分)` で組むので、24:00（1440 分）は翌日の 0:00 になる。
+  for (const dayOffset of [-1, 0]) {
+    for (const minute of [window.from, window.until]) {
+      const edge = new Date(at.getFullYear(), at.getMonth(), at.getDate() + dayOffset, 0, minute).getTime()
+
+      if (edge <= nowMs && edge > latest) {
+        latest = edge
+      }
+    }
+  }
+
+  return latest
+}

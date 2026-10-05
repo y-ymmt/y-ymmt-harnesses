@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "tokyo-board",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "待機中の帯に東京の天気・運行情報・警報・ニュースを出す",
   "author": {
     "name": "y-ymmt"
