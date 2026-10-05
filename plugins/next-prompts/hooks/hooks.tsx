@@ -8,7 +8,6 @@ import type { EngineInterface, Register } from 'claude-code'
 import {
   HEADING,
   GAP,
-  digitOf,
   fingerprintOf,
   lastUserText,
   layoutLabels,
@@ -24,6 +23,11 @@ import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
 
 /** プラグイン名。ui.press の持ち主。 */
 const PLUGIN = 'next-prompts'
+
+// ボタンの常時の背景。Button には背景色の指定が無い（文字のスタイルと hover だけ）ので Box で包んで塗る。
+// Claude Code 本体のテーマの色なので、暗い背景でも明るい背景でも文字が読める。ホバーの反転とは別の層。
+// ボタンの下地。テーマの userMessageBackground では薄くて見えなかったので、暗い背景で目立つ濃い灰青にする。
+const CHIP_BACK = '#4b5470'
 
 /** 候補ボタンの key の頭（後ろに位置の番号を付ける）。 */
 export const BUTTON_PREFIX = 'next-prompt-'
@@ -49,8 +53,6 @@ const TIMEOUT_MS = 20_000
 /** 打ちかけの文があるとき、2 回目の押し込みを待つ時間。 */
 export const CONFIRM_MS = 5_000
 
-/** 空の入力欄に数字を 1 つ打ってから、その番号の候補に置き換えるまでの既定の待ち時間。 */
-export const DIGIT_DELAY_MS = 800
 
 /** 帯の状態。描き直しのたびに読む（モジュール変数: 読み込み直しで消えてよい一時的なもの）。 */
 type View = {
@@ -66,8 +68,6 @@ type View = {
   shown: string[]
   /** 打ちかけの文があって 1 回目を受けたボタン。 */
   armed: { element: string; until: number } | null
-  /** 空の入力欄に数字を 1 つ打ったところ（置き換えを待っている候補の位置と、待つ期限）。 */
-  pending: { index: number; until: number } | null
   /** メインのターンが走っているか。 */
   isRunning: boolean
   /** 保存した候補を読み戻しにいったか（セッションの始まりに 1 回だけ）。 */
@@ -82,12 +82,6 @@ function countOf(value: unknown): number {
   const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 4
 
   return Math.max(3, Math.min(6, n))
-}
-
-function delayOf(value: unknown): number {
-  const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : DIGIT_DELAY_MS
-
-  return Math.max(200, Math.min(3_000, n))
 }
 
 function modelOf(value: unknown): string {
@@ -248,6 +242,15 @@ async function choose($: EngineInterface, view: View, element: string): Promise<
 }
 
 /**
+ * 入力欄の全文が「/番号 + 空白」（半角・全角どちらでも。例 `/2 `、`／２　`）なら、その番号。違えば null。
+ */
+export function pickNumberOf(text: string): number | null {
+  const match = /^[/／]([1-9１-９])[ 　]$/u.exec(text)
+
+  return match === null ? null : Number((match[1] as string).normalize('NFKC'))
+}
+
+/**
  * @param options manifest の `userConfig` の値
  */
 export const register: Register = (on, options) => {
@@ -256,7 +259,6 @@ export const register: Register = (on, options) => {
     count: countOf(options['count']),
     model: modelOf(options['model']),
     digitSelect: booleanOf(options['digitSelect'], true),
-    digitDelayMs: delayOf(options['digitDelayMs']),
   }
   const view: View = {
     phase: 'idle',
@@ -265,7 +267,6 @@ export const register: Register = (on, options) => {
     lastPrompt: '',
     shown: [],
     armed: null,
-    pending: null,
     isRunning: false,
     isRestoreTried: false,
   }
@@ -282,7 +283,6 @@ export const register: Register = (on, options) => {
     view.suggestion = null
     view.shown = []
     view.armed = null
-    view.pending = null
   }
 
   // 次のターンが始まったら候補を消す。
@@ -336,44 +336,21 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // 数字キーで選ぶ: 空の入力欄に候補の番号の数字を 1 つ打ち、そのまま settings.digitDelayMs 待つと、その候補に置き換える。
-  // 続けて何か打てば（`11`、`1番で` など）置き換えずにそのまま入る。待っている間はその候補を目立たせる。
+  // /1 + 空白で選ぶ: 空の入力欄が「/1 」になった瞬間に、その番号の候補の全文に置き換える。何も送らないので、
+  // 会話の記録にもモデルへの会話にも残らない。数字だけの「1」は送れ、日本語入力の途中で置き換わることもない。
   on('prompt.edit', async ($, e, next) => {
     if (!isEnabled || !settings.digitSelect || view.isRunning || view.shown.length === 0) return next(e)
 
-    const wasPending = view.pending !== null
-    const digit = digitOf(e.inputText)
+    const after = e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end)
+    const n = pickNumberOf(after)
+    const text = n === null ? undefined : view.shown[n - 1]
 
-    view.pending = null
+    if (text === undefined) return next(e)
 
-    if (e.text !== '' || digit === null || digit > view.shown.length) {
-      if (wasPending) redraw($)
-
-      return next(e)
-    }
-
-    const answer = await next(e)
-    const typed = answer.text
-    const index = digit - 1
-    const until = (await $.clock.now()) + settings.digitDelayMs
-    const pending = { index, until }
-
-    view.pending = pending
+    view.armed = null
     redraw($)
-    void (async () => {
-      await $.clock.sleep(settings.digitDelayMs)
-      if (view.pending !== pending) return
-      view.pending = null
 
-      const text = view.shown[index]
-      // 待っている間に入力欄が変わっていたら（打ち足した・消した・送った）置き換えない。
-      const now = (await $.prompt.read()).text
-
-      if (text !== undefined && now === typed && !view.isRunning) await $.prompt.fill({ text, mode: 'replace' })
-      redraw($)
-    })()
-
-    return answer
+    return { text, cursor: text.length }
   })
 
   on('ui.press', async ($, e, next) => {
@@ -416,12 +393,13 @@ export const register: Register = (on, options) => {
       <Box key={slotKey(BAND_ORDER.nextPrompts, 'next-prompts')} flexDirection="row" flexWrap="wrap" columnGap={GAP}>
         <Text dimColor>{HEADING}</Text>
         {placed.map(item => (
-          <Button
-            key={`${BUTTON_PREFIX}${item.index}`}
-            label={item.label}
-            {...(view.pending?.index === item.index ? { variant: 'primary' as const } : {})}
-            onPress={() => undefined}
-          />
+          <Box key={`${BUTTON_PREFIX}${item.index}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
+            <Button
+              key={`${BUTTON_PREFIX}${item.index}`}
+              label={item.label}
+              onPress={() => undefined}
+            />
+          </Box>
         ))}
         {idle === '' ? null : <Text dimColor>{idle}</Text>}
       </Box>

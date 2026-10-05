@@ -17,8 +17,8 @@ const USER_TAIL = 600
 const ASSISTANT_HEAD = 600
 const ASSISTANT_TAIL = 2_000
 
-/** 中身ごと落とすタグ（エンジンが会話に差し込む注記やコマンドの出力）。 */
-const DROPPED_TAGS = ['system-reminder', 'local-command-stdout', 'local-command-stderr', 'local-command-caveat']
+/** 中身ごと落とすタグ（エンジンが会話に差し込む注記・コマンドの出力・サブエージェントの報告や通知）。 */
+const DROPPED_TAGS = ['system-reminder', 'local-command-stdout', 'local-command-stderr', 'local-command-caveat', 'agent-message', 'task-notification', 'cross-session-message']
 
 /**
  * 発言の文から、エンジンが差し込んだ注記を落とし、残りのタグ記号を外して空白を均す。
@@ -27,7 +27,8 @@ export function cleanText(text: string): string {
   let out = text
 
   for (const tag of DROPPED_TAGS) {
-    out = out.replace(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, 'g'), '')
+    // 開きタグに属性が付くもの（`<agent-message from="…">`）も落とす。
+    out = out.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?</${tag}>`, 'g'), '')
   }
 
   return out

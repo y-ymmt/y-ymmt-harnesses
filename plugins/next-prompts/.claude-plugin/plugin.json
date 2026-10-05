@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "next-prompts",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "ターンが終わるたびに、次に打ちそうな依頼の候補をいくつかプロンプトの上に並べ、押すと入力欄に入れる",
   "author": {
     "name": "y-ymmt"
@@ -29,17 +29,9 @@
     },
     "digitSelect": {
       "type": "boolean",
-      "title": "数字キーで選ぶ",
-      "description": "空の入力欄に候補の番号の数字を 1 つ打って少し待つと、その候補に置き換える（候補に番号を付けて出す）。続けて打てばそのまま入る",
+      "title": "番号で選ぶ",
+      "description": "候補に番号を付け、空の入力欄で「/番号 + 空白」（例 /2 ）と打つとその候補に置き換える（送信はしない）",
       "default": true
-    },
-    "digitDelayMs": {
-      "type": "number",
-      "title": "数字を打ってから置き換えるまでの時間（ミリ秒）",
-      "description": "この間に何か打てば置き換えない",
-      "default": 800,
-      "min": 200,
-      "max": 3000
     }
   }
 }

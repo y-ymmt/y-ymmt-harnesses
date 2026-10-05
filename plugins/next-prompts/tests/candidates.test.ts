@@ -216,3 +216,17 @@ describe('ラベル', () => {
     for (const p of placed) expect(cellWidth(p.label)).toBeLessThanOrEqual(48)
   })
 })
+
+describe('サブエージェントの報告', () => {
+  test('agent-message・task-notification・cross-session-message の行はユーザーの依頼に数えない', () => {
+    const messages: Message[] = [
+      { role: 'user', text: '直して' },
+      { role: 'assistant', text: '任せました' },
+      { role: 'user', text: '<agent-message from="a1">\n報告です\n</agent-message>' },
+      { role: 'user', text: '<task-notification>\n<task-id>a1</task-id>\n</task-notification>' },
+    ]
+
+    expect(lastUserText(messages)).toBe('直して')
+    expect(transcriptOf(messages)).not.toContain('報告です')
+  })
+})
