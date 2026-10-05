@@ -9,6 +9,8 @@ import { dangerRanges, splitByRanges } from './danger'
 import { stripLine, stripMarks, stripTable } from './mark'
 import type { OpenTarget } from './paths'
 import { isPathLike, openKey, openLabel } from './paths'
+import type { ReplyFormat } from './reply'
+import { REPLY_DONE, REPLY_DONE_RICH, REPLY_LABEL, convertReply, convertReplySlackRich } from './reply'
 import { commentTail, commentVisual, flow, hasRtl } from './rtl'
 import type { CopyFormat, SortDir } from './table'
 import { COPY_DONE, COPY_LABEL, sortOrder, toMarkdown, toSlack, toTsv } from './table'
@@ -105,6 +107,36 @@ export const renderOpenRow = (el: ElementTable, style: Style, blocks: readonly B
       <Text dimColor>開く:</Text>
       {shown.map(t => <Button key={openKey(t)} plain label={openLabel(t)} onPress={() => undefined} />)}
       {rest > 0 ? <Text dimColor>{`ほか ${rest} 件`}</Text> : null}
+    </Box>
+  )
+}
+
+/** 返事まるごとコピーのボタンの key の接頭辞（表・コードのコピー `copy…`、開く `open:` と重ならない）。 */
+export const REPLY_COPY_PREFIX = 'replycopy.'
+
+/**
+ * 返事の最後に足す「コピー:」の行。押すと返事のテキストブロック全部を形式ごとに書き直してコピーする（書き直すのは押したとき）。
+ * `copy` は表・コードのコピーボタンと同じ作り（$.ui.copy とトースト）。`copyButtons` には従わず、`replyCopy` で出し分ける。
+ * Slack は書式付き（HTML とプレーンテキスト）も渡し、入れられなければ mrkdwn の文字を入れる。
+ */
+export const renderReplyCopyRow = (el: ElementTable, formats: readonly ReplyFormat[], texts: readonly string[], copy: CopyButton): RenderElement | null => {
+  const buttons = formats
+    .map(format =>
+      copy(
+        () => convertReply(format, texts),
+        `${REPLY_COPY_PREFIX}${format}`,
+        REPLY_LABEL[format],
+        REPLY_DONE[format],
+        format === 'slack' ? { content: () => convertReplySlackRich(texts), done: REPLY_DONE_RICH } : undefined,
+      ),
+    )
+    .filter((b): b is RenderElement => b !== null)
+  if (buttons.length === 0) return null
+  const { Box, Text } = el
+  return (
+    <Box key="replycopy" flexDirection="row" flexWrap="wrap" columnGap={1}>
+      <Text dimColor>コピー:</Text>
+      {buttons}
     </Box>
   )
 }
@@ -516,8 +548,14 @@ const renderList = (el: ElementTable, style: Style, block: Extract<Block, { kind
   )
 }
 
-/** コピーボタン。`text` は押されたときに作る関数でもよい（表の TSV・Slack 形式）。`done` は押した後のトースト。 */
-export type CopyButton = (text: string | (() => string), key: string, label?: string, done?: string) => RenderElement | null
+/** 書式付き（HTML とプレーンテキスト）でも入れるときの中身（押されたときに作る）と、入れられたときのトースト。 */
+export type RichCopy = { content: () => { html: string; plain: string }; done: string }
+
+/**
+ * コピーボタン。`text` は押されたときに作る関数でもよい（表の TSV・Slack 形式）。`done` は押した後のトースト。
+ * `rich` があれば先に書式付きで入れ（macOS だけ）、入れられなければ `text` を文字として入れる。
+ */
+export type CopyButton = (text: string | (() => string), key: string, label?: string, done?: string, rich?: RichCopy) => RenderElement | null
 
 export const COPY = '⧉ コピー'
 export type Drawn = Map<number, { element: RenderElement; art: string }>

@@ -4,13 +4,14 @@ Claude Code の返事（表・コード・Mermaid の図・ツール行・コマ
 Claude Code プラグイン（function hooks）。
 
 **[prismantis](https://github.com/NahumLitvin/prismantis)（作者 [Nahum Litvin](https://github.com/NahumLitvin)、MIT ライセンス）を元にした改変版**で、
-コミット `b13de6c9ec39e01946943f67b07e5fae4aefd939`（2026-10-04、prismantis 0.6.0）を取り込み、次の 5 つを足している。
+コミット `b13de6c9ec39e01946943f67b07e5fae4aefd939`（2026-10-04、prismantis 0.6.0）を取り込み、次の 6 つを足している。
 
 1. ファイルパスをエディタで開く（押して開くボタンと、cmd+クリックで開くリンク）
 2. 表のコピー形式を選べる（Markdown・TSV・Slack）
 3. 危ない語（`本番` `DELETE` `rm -rf` など）と、Claude が `==…==` で囲んだ注意箇所を赤背景で目立たせる
 4. 長い表・コードブロックを畳む
 5. 表を列で並べ替える
+6. 返事まるごとコピー（貼り先ごとの形: Markdown・GitHub・Slack・Notion）
 
 ボタン・トースト・コマンドの返事・`/config` の項目名は日本語にした。ツール行の動詞（`Ran` `Read` `Edited`）と
 ターンの終わりの行は、Claude Code 自身の表示に合わせて英語のまま。
@@ -28,6 +29,7 @@ Claude Code プラグイン（function hooks）。
   [ あと 33 行を表示 ]
 
   開く:  AppService.java:42  Foo.java                                  ← 押すとエディタで開く
+  コピー: [ Markdown ] [ GitHub ] [ Slack ] [ Notion ]                 ← 返事全体を貼り先の形でコピー
 ```
 
 （上は形の説明。実際の色と並びは端末で `/reply-prism demo` を出して確かめる。）
@@ -49,7 +51,7 @@ Claude Code 2.1.287 以降。入れた後、開いているセッションは `/
 reply-prism を使うときは prismantis を `/plugin` で無効にする。
 
 名前は衝突しないようにしてある: プラグイン名 `reply-prism`、コマンド `/reply-prism`、設定は `pluginConfigs["reply-prism@y-ymmt-harnesses"]`、
-`$.state` のキーは `reply-prism.view`。
+`$.state` のキーは `reply-prism.view` と `reply-prism.turn`。
 
 ## 足した機能
 
@@ -213,6 +215,85 @@ Mermaid を図にしたブロックは畳まない。
 |---|---|---|
 | `tableSort` | `false` で並べ替えのボタンを出さない | `true` |
 
+### 6. 返事まるごとコピー
+
+返事の最後に `コピー: [ Markdown ] [ GitHub ] [ Slack ] [ Notion ]` の行を置き、押すとその返事全体を貼り先に合う形に
+書き直してクリップボードに入れる（トーストで「GitHub 用にコピーしました」などと出る）。ボタンは表・コードのコピーボタンと同じ作り
+（ctrl+x tab で移って Enter、またはクリックを通す端末でクリック）で、デスクトップなど端末以外でも出す。
+
+- **範囲は返事全体**: 1 回の返事はツール呼び出しを挟んで複数のテキストブロックに分かれる。依頼（ツールの結果ではないユーザーの行）から
+  次の依頼までの Claude のテキストを全部、空行 1 つでつないでコピーする。ボタンの行はその返事の**最後のテキストブロックの下にだけ**出す
+- **返事が終わってから出る**: ターンの途中は出さず、ターンが終わった時点で最後のテキストブロックの下に出る（それまでのブロックには出ない）
+- ツールの呼び出し・結果・考えている途中の文は入らない。`/reply-prism demo` などコマンドの出力は返事ではないので出ない
+
+| 形式 | 中身 | 貼り先 |
+|---|---|---|
+| Markdown | 返事に書かれたとおりの Markdown。`==…==` の印は外す。GitHub の囲み `> [!NOTE]` は、どこでも読める `> **Note**` と本文の引用に | Markdown のエディタ・ファイル |
+| GitHub | GFM。囲み・表・mermaid・コードの言語名はそのまま。`==x==` は `**x**` | GitHub の Issue・PR のコメント |
+| Slack | **macOS では書式付きのテキスト**（Web ページからコピーしたときと同じ HTML と、書式記号の無いプレーンテキスト）。Slack の入力欄に貼ると太字・斜体・取り消し・コード・リンク・リスト・引用が書式になる。見出しは太字の段落、コードブロックは言語名なし（mermaid も図のソースのまま）、表は Slack に無いので「2.」の Slack と同じ桁を揃えたコードブロック、囲みは `⚠️ **Warning**` のように絵文字と太字のラベルの引用、`==x==` は太字。トーストは「Slack 用にコピーしました（書式付き）」。**macOS 以外・書けなかったとき**は mrkdwn の文字（`*太字*` `_斜体_` `~取り消し~` `` `code` ``、リンクは `text (url)`、リストは `•`）を入れ、トーストは「（文字だけ）」 | Slack |
+| Notion | 貼ると見出し・リスト・コード（言語つき）・表・引用になる Markdown。囲みは `> ⚠️ **Warning**` のように絵文字とラベルの引用、mermaid は言語 `mermaid` のコードブロックのまま、`####` 以下の見出しは太字の 1 行（Notion の見出しは 3 段まで）、`==x==` は `**x**` | Notion |
+
+例（返事が「ログを確認します。」→ ツール呼び出し → 下の文、の 2 つのテキストブロック）:
+
+````
+ログを確認します。
+
+## 結果
+
+**原因**は `app.yml` の ==本番の値の上書き== です。
+
+> [!WARNING]
+> 先にバックアップ
+````
+
+を Slack でコピーすると、macOS では次の HTML（とプレーンテキスト）が入る:
+
+```html
+<p>ログを確認します。</p><p><b>結果</b></p><p><b>原因</b>は <code>app.yml</code> の <b>本番の値の上書き</b> です。</p><blockquote>⚠️ <b>Warning</b><br>先にバックアップ</blockquote>
+```
+
+macOS 以外（文字だけ）では次の mrkdwn が入る:
+
+````
+ログを確認します。
+
+*結果*
+
+*原因*は `app.yml` の *本番の値の上書き* です。
+
+> :warning: *Warning*
+> 先にバックアップ
+````
+
+| 設定 | 値 | 既定 |
+|---|---|---|
+| `replyCopy` | `false` で「コピー:」の行を出さない（会話も読まない） | `true` |
+| `replyCopyFormats` | 並べる形式をカンマ区切りで、この並びで（`markdown` `github` `slack` `notion`）。知らない名前は捨て、空なら 4 つとも | `markdown,github,slack,notion` |
+
+`copyButtons` を `false` にしても、この行は `replyCopy` に従って出す。
+
+**確かめていないこと**（テストでは書き直した文字列までしか見ていない）:
+
+- Notion・GitHub・Markdown（返事まるごとコピー）は、macOS で実際に貼って確かめた。Notion では見出し・太字・斜体・取り消し・
+  入れ子のリスト・番号付きリスト・表・言語つきのコード（`ts` は TypeScript になった）・mermaid の図・囲み（⚠️ Warning の引用）が
+  そのまま書式になり、GitHub の Issue コメントでは囲み・表・mermaid の図まで描かれた
+- Slack（書式付き）: macOS で実際に貼り、太字・斜体・取り消し・インラインコード・リンク・入れ子のリスト・番号付きリスト・
+  コードブロック・表（桁揃えの `<pre>`）・囲み（⚠️ Warning の引用）が書式になることを確かめた。Slack は隣り合う `<pre>` どうし・
+  `<blockquote>` どうしを 1 つにまとめ、段落の余白も詰めるので、ブロックの間に空の段落（`<p><br></p>`）を挟んでいる
+  （挟んだあとも、表とコード・囲みと引用が別々のブロックになり、段落の間が適度に空くことを確かめた）。
+  貼るときに書式を外す貼り方（cmd+shift+v など）では、プレーンテキストのほうが入る
+- Slack（文字だけ）: 入力欄は貼り付けた文字の mrkdwn を解釈しない（実機で確かめた）ので、`*太字*` などは記号のまま残る。Slack の設定
+  「マークアップでメッセージをフォーマットする」を有効にすると、貼った後に書式になるかもしれない（未確認）。日本語に挟まれた
+  `*太字*`（`これは*大事*です`）は、Slack が前後に空白か記号を求めるため太字にならないことがある（未確認）
+- GitHub の囲みを使わない汎用の Markdown では、`> **Note**` とその次の行は（ふつうの Markdown では）1 行につながって表示される
+
+仕組み: 描画（`AssistantMessage`）には自分のテキストブロックの文しか来ず、`isFirstOfReply` もツール呼び出しの後のブロックごとに
+`true` になる（実機で確かめた）。そこで `$.session.messages()` で会話を読み、そのブロックの文と同じ行を探して、入っている返事と、
+それが返事の最後のテキストブロックかを決める。同じ文が何度も出てくるときは一番新しいほうとみなす。会話に見つからないブロック
+（`/compact` の前の古い返事、会話の新しいほうから 4096 行より前など）には行を出さない。会話は描画のたびに読むと重いので、
+ターンの始めと終わりまで使い回す。最後の返事のブロックだけが `$.state` の `reply-prism.turn`（ターンが走っているか）を読み、
+ターンの始めと終わりに書くことで描き直される（古い返事のブロックは読まないので描き直されない）。
+
 ## 本家から引き継いだ機能
 
 本家の README（英語）に詳しい。ボタンの文言を日本語にしたほかは、下に書いた Mermaid の全角対応だけを直した。
@@ -237,7 +318,7 @@ Mermaid を図にしたブロックは畳まない。
 
 - `/reply-prism` — 使い方とテーマの一覧
 - `/reply-prism theme <name>` — テーマを切り替える
-- `/reply-prism demo` — すべての要素と、足した 5 つの機能の見本
+- `/reply-prism demo` — すべての要素と、足した機能の見本（返事まるごとコピーの行はコマンドの出力には出ないので、説明だけ）
 - `/reply-prism demo-rtl` — 右から左の見本
 
 ## 設定
@@ -281,6 +362,7 @@ Mermaid を図にしたブロックは畳まない。
 | `dangerHighlight` `dangerHints` `dangerWords` `dangerWordsExtra` `dangerColor` `dangerBackgroundColor` | 上の「3.」 | |
 | `foldLines` `foldPreviewLines` | 上の「4.」 | `40` / `15` |
 | `tableSort` | 上の「5.」 | `true` |
+| `replyCopy` `replyCopyFormats` | 上の「6.」 | `true` / `markdown,github,slack,notion` |
 
 色の書き方: 16 進（`#a6e3a1` `#fc0`）、`rgb(166,227,161)`、`ansi256(114)`、色名（`green` `cyanBright` など）。読めない値は無視する。
 
@@ -318,10 +400,25 @@ Mermaid を図にしたブロックは畳まない。
 | Windows | 未対応 | 開くコマンド（`start` など）が無く、ボタンを押すと「見つかりません」のトーストになる。`C:\…` のパスはインラインコードに書かれたときだけ拾い、文中のドライブ文字つきのパス（`C:\…` `C:/…`）は拾わない。`~` は `HOME` が無いと展開しない |
 | WSL・SSH 先・コンテナの中で動かす | 未対応 | 開くコマンドは Claude Code が動いている側で走る。手元の画面では開かず、URL もそちら側のパスを指す |
 
-- 足した 5 つの機能のテスト（`tests/reply-prism.test.tsx`）は `claude-code/testing` の terminal で、パスの拾い方・URL・`open` / `xdg-open`
+### OS と Slack の書式付きコピー
+
+返事まるごとコピーの Slack を書式付き（HTML）で入れるのは **macOS 専用**。それ以外では今まで通り文字だけ（mrkdwn）を入れる。
+
+| 環境 | 状態 | 補足 |
+|---|---|---|
+| macOS（端末・デスクトップアプリ・VS Code） | 書き込みは確認済み | 押したとき `uname -s` が `Darwin` なら（結果は覚える）、`osascript -l JavaScript`（JXA）で一般のペーストボードに `public.html` と `public.utf8-plain-text` を書く。中身は標準入力に JSON で渡し、シェルは通らない。書けたことは実機で読み戻して確かめた。Slack に貼った結果は未確認（上の「確かめていないこと」） |
+| macOS で osascript が無い・失敗した | テストだけ | `$.ui.copy` で mrkdwn の文字を入れ、トーストは「（文字だけ）」 |
+| Linux・Windows | テストだけ | osascript を呼ばずに文字だけ |
+| SSH 越し（`SSH_CONNECTION` か `SSH_TTY` がある）・モバイルから押した | テストだけ | クリップボードが手元のものではないので、書式付きは試さずに `$.ui.copy`（端末の OSC 52 やモバイルのアプリ）で文字だけ |
+
+- 足した 1〜5 の機能のテスト（`tests/reply-prism.test.tsx`）は `claude-code/testing` の terminal で、パスの拾い方・URL・`open` / `xdg-open`
   に渡す引数・トースト・コピーの中身を見ている。Windows のパスは開くボタンの key の読み戻しだけ
 - `==…==` の注意箇所はテストで描き方・コピー・注記の有無を見ている（desktop も）。Claude が実際にどこを囲むか（注記の効き目）はテストでは確かめられない
-- Notion への貼り付けは確かめていない（「2. 表のコピー形式」）
+- Notion への貼り付けは、「6. 返事まるごとコピー」の Notion 用を macOS で確かめた。「2. 表のコピー形式」の表だけのコピーは確かめていない
+- 返事まるごとコピーは、端末（Orca ではない tmux の中の main screen）で、ツール呼び出しを挟んだ返事の最後のテキストブロックの下にだけ
+  行が出ること、次の依頼の後も前の返事の行が残ることを実機で見た。ボタンを押したときのコピーの中身と、ターンの途中に出ないこと・
+  終わると出ることはテスト（`tests/reply-copy.test.tsx`、terminal と desktop）で見ている。Slack の文字（mrkdwn）は
+  入力欄に貼ると記号のまま残ることを実機で確かめ、macOS では書式付き（HTML）に変えた。書式付きを Slack に貼っては確かめていない
 
 ## 仕組み
 
@@ -340,9 +437,12 @@ hooks/paths.ts               パスの検出・絶対化・エディタの URL�
 hooks/danger.ts              危ない語の検出                                        独自
 hooks/mark.ts                `==…==` の注意箇所の検出・コピー用に外す・Claude への注記  独自
 hooks/table.ts               並べ替え（値の種類の判定）とコピー形式                独自
+hooks/reply.ts               返事まるごとコピー（返事を集める・形式ごとの書き直し・Slack の HTML）  独自
+hooks/clipboard.ts           書式付きコピーの JXA と argv（macOS のペーストボード）    独自
 hooks/width.ts               表示幅                                               本家 render.tsx から切り出し（中身は同じ）
-types/index.d.ts             $.state の契約（reply-prism.view）                   独自
-tests/reply-prism.test.tsx   足した 5 つの機能のテスト                            独自
+types/index.d.ts             $.state の契約（reply-prism.view・reply-prism.turn）  独自
+tests/reply-prism.test.tsx   足した 1〜5 の機能のテスト                           独自
+tests/reply-copy.test.tsx    返事まるごとコピーのテスト                            独自
 tests/*.test.tsx（他）       本家のテスト                                          改変（名前・ボタンの文言・ボタンの数・ツール行のパス）
 scripts/                     hooks/vendor を作り直すスクリプト                    本家のまま（package.json の名前と不要なスクリプトだけ変更）
 docs/demo.md                 本家の見本の返事                                      本家のまま

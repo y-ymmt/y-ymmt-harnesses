@@ -76,6 +76,18 @@
       "description": "表の上に並べるコピーボタンの形式をカンマ区切りで: markdown（Markdown の表）、tsv（Excel・スプレッドシートに貼る用）、slack（桁を揃えたコードブロック）。空なら 3 つとも",
       "default": "markdown,tsv,slack"
     },
+    "replyCopy": {
+      "type": "boolean",
+      "title": "返事まるごとコピー",
+      "description": "返事の最後に「コピー:」と貼り先ごとのボタン（Markdown・GitHub・Slack・Notion）を置き、押すとその返事全体（ツール呼び出しを挟んだテキストも全部）を貼り先に合う形でコピーする。返事が終わってから、最後のテキストブロックの下に出る",
+      "default": true
+    },
+    "replyCopyFormats": {
+      "type": "string",
+      "title": "返事まるごとコピーの形式",
+      "description": "「コピー:」の行に並べる形式をカンマ区切りで（この並びで出す）: markdown（汎用の Markdown）、github（Issue・PR のコメント）、slack（macOS では Slack に貼ると書式になる書式付きのテキスト、ほかは mrkdwn の文字）、notion（貼ると見出し・表などになる Markdown）。空なら 4 つとも",
+      "default": "markdown,github,slack,notion"
+    },
     "tableSort": {
       "type": "boolean",
       "title": "表を列で並べ替える",

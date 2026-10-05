@@ -55,6 +55,27 @@ export const stripMarks = (text: string): string => (text.includes('==') ? text.
 export const stripTable = (text: string): string =>
   text.includes('==') ? text.split('\n').map(line => line.split(/((?<!\\)\|)/).map(stripLine).join('')).join('\n') : text
 
+/**
+ * 1 行の印を別の記法に書き換える（返事まるごとコピー用。`**` を渡すと `==x==` → `**x**`）。
+ * 中身に同じ記号があると入れ子で崩れるので、そのときは印を外すだけにする。表の行（`|` で始まる行）はセルごとに探す。
+ */
+export const rewriteMarks = (line: string, wrap: string): string => {
+  if (!line.includes('==')) return line
+  const one = (part: string): string => {
+    const marks = findMarks(part)
+    if (marks.length === 0) return part
+    let out = ''
+    let at = 0
+    for (const m of marks) {
+      const inner = part.slice(m.start + 2, m.end - 2)
+      out += part.slice(at, m.start) + (wrap && !inner.includes(wrap) ? wrap + inner + wrap : inner)
+      at = m.end
+    }
+    return out + part.slice(at)
+  }
+  return /^\s*\|/.test(line) ? line.split(/((?<!\\)\|)/).map(one).join('') : one(line)
+}
+
 /** 対にならず残った置き換え文字を `==` に戻す（太字などの境目で印が割れたとき）。 */
 export const restoreMarks = (text: string): string => text.replace(SENTINELS, '==')
 

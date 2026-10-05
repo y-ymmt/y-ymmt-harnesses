@@ -5,17 +5,23 @@
 // - 表のコピー形式（Markdown・TSV・Slack）と、ボタン・トーストの日本語化
 // - コマンド名を `/reply-prism` に（本家の `/prismantis` と衝突しないように）
 // - 注意箇所の注記（DANGER_HINT）: 返事を書く Claude に、特に注意すべき箇所を `==…==` で囲ませる
+// - 返事まるごとコピー: 返事の最後のテキストブロックの下に「コピー:」と形式ごとのボタン（会話は $.session.messages() で読む）。
+//   Slack は macOS なら書式付き（HTML）でクリップボードに入れる（clipboard.ts）
 import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import type { ReplyPrismView } from '../types'
+import type { RichText } from './clipboard'
+import { PASTEBOARD_ARGV, pasteboardInput } from './clipboard'
 import { DANGER_HINT } from './mark'
 import { parse } from './markdown'
 import { boxArt, mermaidText } from './mermaid'
 import type { OpenTarget } from './paths'
 import { editorUrl, makeLinker, makeResolver, parseOpenKey } from './paths'
 import type { Controls, CopyButton, Drawn } from './render'
-import { COPY, remember, renderBlocks, renderExpandedShell, renderOpenRow, renderToolGroup, renderToolRow, renderTurnDuration, width } from './render'
+import { COPY, remember, renderBlocks, renderExpandedShell, renderOpenRow, renderReplyCopyRow, renderToolGroup, renderToolRow, renderTurnDuration, width } from './render'
+import type { TranscriptRow } from './reply'
+import { findReply } from './reply'
 import { helpText, rtlShowcaseText, showcaseText } from './help'
 import { PRESET_NAMES } from './presets'
 import { nextSort } from './table'
@@ -34,6 +40,9 @@ const HINT = [
 
 /** 表・コードの開閉と並べ替えの状態。メッセージ（requestId）ごとに 1 つ。 */
 const VIEW = atom({ plugin: 'reply-prism', key: 'view' } as const, {})
+
+/** メインのターンが走っているか。ターンの始めと終わりに書き、会話の最後の返事のブロックが読む（返事まるごとコピー）。 */
+const TURN = atom({ plugin: 'reply-prism', key: 'turn' } as const, { running: false, n: 0 })
 
 const detectTerminal = async ($: EngineInterface): Promise<Terminal | null> => {
   const program = await $.env.get('TERM_PROGRAM')
@@ -89,22 +98,92 @@ const openInEditor = async ($: EngineInterface, style: Style, target: OpenTarget
   $.ui.toast('ファイルを開くコマンド（open / xdg-open）が見つかりません', { timeoutMs: 5_000 })
 }
 
-const makeCopy = ($: EngineInterface, el: ReturnType<EngineInterface['ui']['resolve']>, style: Style): CopyButton => {
+// ---- 書式付きのコピー（macOS） ----
+
+/** 手元の macOS か（分かったら覚える）。register が 1 つ作り、押されるたびに writeRichText に渡す。 */
+type RichClipboard = { isLocalMac?: boolean }
+
+/**
+ * 手元の macOS か。`uname -s` が `Darwin` で、SSH 越しでない（SSH 先の Mac のクリップボードは手元のものではない）。
+ * コマンドが走らなかったときは undefined（覚えずに、次の押下でまた見る）。
+ */
+const detectLocalMac = async ($: EngineInterface): Promise<boolean | undefined> => {
+  if ((await $.env.get('SSH_CONNECTION').catch(() => undefined)) || (await $.env.get('SSH_TTY').catch(() => undefined))) return false
+  try {
+    const { exitCode, stdout } = await $.process.run(['uname', '-s'], { timeoutMs: 5_000 })
+    return exitCode === 0 && stdout.trim() === 'Darwin'
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 書式付き（HTML とプレーンテキスト）でクリップボードに入れる（clipboard.ts の JXA）。入れられたら true。
+ * macOS でない・SSH 越し・osascript が無い・失敗したら false（呼ぶ側が `$.ui.copy` で文字だけを入れる）。
+ */
+const writeRichText = async ($: EngineInterface, clipboard: RichClipboard, content: RichText): Promise<boolean> => {
+  clipboard.isLocalMac ??= await detectLocalMac($)
+  if (!clipboard.isLocalMac) return false
+  try {
+    const { exitCode, stdout } = await $.process.run(PASTEBOARD_ARGV, { stdin: pasteboardInput(content), timeoutMs: 10_000 })
+    return exitCode === 0 && stdout.trim() === 'ok'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * コピーボタン。書式付き（`rich`）があれば先にそれを試す（macOS の端末・デスクトップ・VS Code。クリップボードは Claude Code が
+ * 動いている機械のものなので、モバイルでは試さない）。入れられなければ今まで通り `$.ui.copy` で文字だけを入れる。
+ */
+const makeCopy = ($: EngineInterface, el: ReturnType<EngineInterface['ui']['resolve']>, style: Style, clipboard?: RichClipboard): CopyButton => {
   const { Button } = el
-  return (text, key, label = COPY, done = 'コピーしました') =>
+  return (text, key, label = COPY, done = 'コピーしました', rich) =>
     style.copyButtons ? (
       <Button
         key={key}
         variant="primary"
         label={label}
         onPress={press => {
-          const value = typeof text === 'function' ? text() : text
-          $.ui.copy({ text: value, surface: press.surface })
-            .then(r => $.ui.toast(r.isCopied ? done : `コピーできませんでした: ${r.reason}`))
-            .catch(() => $.ui.toast('コピーできませんでした'))
+          void (async () => {
+            if (rich && clipboard && press.surface !== 'mobile' && (await writeRichText($, clipboard, rich.content()))) {
+              $.ui.toast(rich.done)
+              return
+            }
+            const value = typeof text === 'function' ? text() : text
+            const r = await $.ui.copy({ text: value, surface: press.surface })
+            $.ui.toast(r.isCopied ? done : `コピーできませんでした: ${r.reason}`)
+          })().catch(() => $.ui.toast('コピーできませんでした'))
         }}
       />
     ) : null
+}
+
+// ---- 返事まるごとコピー ----
+// 描画には自分のテキストブロックの文しか来ない（`isFirstOfReply` もツール呼び出しの後のブロックごとに true になる）ので、
+// 会話を読んで、そのブロックが入る返事と、それが返事の最後のテキストブロックかを決める。
+// 会話は描画のたびに読むと重いので、ターンの始めと終わりまで使い回す（ブロックが見つからなければ 1 秒おきに読み直す）。
+let transcript: { at: number; rows: Promise<readonly TranscriptRow[]> } | undefined
+
+const readTranscript = ($: EngineInterface, fresh = false): Promise<readonly TranscriptRow[]> => {
+  const now = Date.now()
+  if (!transcript || (fresh && now - transcript.at >= 1000)) {
+    transcript = { at: now, rows: $.session.messages().then(rows => (Array.isArray(rows) ? rows : []), () => []) }
+  }
+  return transcript.rows
+}
+
+/** このブロックの下に「コピー:」の行を出すなら、その返事のテキストブロックの文。出さないなら undefined。 */
+const replyTexts = async ($: EngineInterface, style: Style, text: string): Promise<string[] | undefined> => {
+  if (!style.replyCopy) return undefined
+  const found = findReply(await readTranscript($), text) ?? findReply(await readTranscript($, true), text)
+  // 会話の最後の返事はターンが終わるまで続きが来るかもしれない。そのブロックと見つからないブロックはターンの状態を読み、
+  // ターンの始めと終わりに描き直させる（返事が終わってから、最後のテキストブロックの下にだけ出る）。古い返事は読まない。
+  if (!found || found.isLatest) {
+    const turn = await read($, TURN).catch(() => TURN.initial)
+    if (!found || turn.running) return undefined
+  }
+  return found.isLast ? found.texts : undefined
 }
 
 /** ブロックの開閉・並べ替えを $.state に書く手段。押したときだけ書く（描画中は書けない）。 */
@@ -152,8 +231,27 @@ export const register: Register = (on, options) => {
   const terminalStyle: Style = { ...style, fileLinks: makeLinker(style.editor, style.editorUrlTemplate, where), fileTargets: makeResolver(style.editor, style.editorUrlTemplate, where) }
   const styles = [style, terminalStyle] as const
   const styleFor = (surface: string): Style => (surface === 'terminal' ? terminalStyle : style)
+  const clipboard: RichClipboard = {}
   const parsed = new Map<string, ReturnType<typeof parse>>()
   const parseCached = (text: string) => remember(parsed, text, () => parse(text, { numbers: style.highlightNumbers, paths: style.highlightPaths }))
+
+  // 返事まるごとコピー: ターンの始めと終わりに会話の読み直しとターンの状態の書き込み（描き直させる）。
+  if (style.replyCopy) {
+    on('turn.start', async ($, e, next) => {
+      transcript = undefined
+      void update($, TURN, t => ({ running: true, n: t.n + 1 })).catch(() => undefined)
+      return next(e)
+    })
+    on('turn.complete', async ($, e, next) => {
+      const done = await next(e)
+      // サブエージェントのターンはメインの返事を変えない。
+      if (e.agentId === undefined) {
+        transcript = undefined
+        await update($, TURN, t => ({ running: false, n: t.n + 1 })).catch(() => undefined)
+      }
+      return done
+    })
+  }
 
   if (options.toolRows !== false) {
     on('ui.render', { component: 'ToolGroup' }, ($, e, next) => {
@@ -170,6 +268,7 @@ export const register: Register = (on, options) => {
   }
 
   on('session.start', async ($, e, next) => {
+    transcript = undefined
     await applyRtl($, styles)
     await learnWhere($, where)
     const started = await next(e)
@@ -230,6 +329,7 @@ export const register: Register = (on, options) => {
     const s = styleFor(e.surface)
     const columns = Math.max(20, (e.viewport?.columns ?? 100) - 4)
     const controls = await readControls($, e, blocks)
+    const whole = await replyTexts($, s, e.props.text)
     return (
       <Box flexDirection="row">
         <Box width={2} flexShrink={0}>
@@ -238,6 +338,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" rowGap={1} flexGrow={1}>
           {drawMarkdown($, el, s, blocks, columns, controls)}
           {renderOpenRow(el, s, blocks)}
+          {whole ? renderReplyCopyRow(el, s.replyCopyFormats, whole, makeCopy($, el, { ...s, copyButtons: true }, clipboard)) : null}
         </Box>
       </Box>
     )

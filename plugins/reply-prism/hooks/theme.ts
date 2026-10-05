@@ -6,6 +6,8 @@ import { DEFAULT_DANGER_WORDS, buildDanger, parseWords } from './danger'
 import type { Editor, Linker, Resolver } from './paths'
 import { EDITORS } from './paths'
 import { PRESETS } from './presets'
+import type { ReplyFormat } from './reply'
+import { REPLY_FORMATS } from './reply'
 import type { CopyFormat } from './table'
 import { COPY_FORMATS } from './table'
 import type { Shape, Terminal } from './rtl'
@@ -54,6 +56,9 @@ export type Style = {
   fold: { threshold: number; preview: number }
   tableSort: boolean
   tableCopyFormats: CopyFormat[]
+  /** 返事の最後に「コピー:」と形式ごとのボタンの行を足すか。並べる形式（並びもこのとおり）。 */
+  replyCopy: boolean
+  replyCopyFormats: ReplyFormat[]
 }
 
 const DEFAULT_DANGER_COLOR = '#ffffff'
@@ -68,6 +73,12 @@ const int = (value: unknown, fallback: number, min: number, max: number): number
 const copyFormats = (value: unknown): CopyFormat[] => {
   const picked = parseWords(typeof value === 'string' ? value.toLowerCase() : value).filter((f): f is CopyFormat => (COPY_FORMATS as readonly string[]).includes(f))
   return picked.length ? [...new Set(picked)] : [...COPY_FORMATS]
+}
+
+/** `markdown,github,slack,notion` → 並びどおりの形式。知らない名前は捨て、空なら全部。 */
+const replyFormats = (value: unknown): ReplyFormat[] => {
+  const picked = parseWords(typeof value === 'string' ? value.toLowerCase() : value).filter((f): f is ReplyFormat => (REPLY_FORMATS as readonly string[]).includes(f))
+  return picked.length ? [...new Set(picked)] : [...REPLY_FORMATS]
 }
 
 /** 危ない語の一覧。`dangerWords` が空でなければ既定を置き換え、`dangerWordsExtra` は足す。 */
@@ -110,6 +121,8 @@ export const resolveStyle = (options: PluginOptions): Style => {
     fold: { threshold: fold, preview: Math.min(int(options.foldPreviewLines, 15, 1, 100000), fold || Infinity) },
     tableSort: options.tableSort !== false,
     tableCopyFormats: copyFormats(options.tableCopyFormats),
+    replyCopy: options.replyCopy !== false,
+    replyCopyFormats: replyFormats(options.replyCopyFormats),
     theme: { ...base, ...fromFields },
     headingStyle: pick(options.headingStyle, ['bold', 'underline', 'uppercase', 'banner'] as const, 'banner'),
     tableStyle: pick(options.tableStyle, ['rules', 'grid', 'minimal'] as const, 'rules'),
