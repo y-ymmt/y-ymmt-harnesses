@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+# 外部サイトの実ページ（Yahoo!路線情報・NHK など）を保存したテスト用データ。
+# 公開リポジトリには載せない。
+plugins/tokyo-board/fixtures/

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "turn-counter",
+  "version": "0.3.0",
+  "description": "ターン中のスピナーをこのセッションのターン数に差し替え、ツールが拒否されたら「ざわっ！」と出す",
+  "author": {
+    "name": "y-ymmt"
+  }
+}

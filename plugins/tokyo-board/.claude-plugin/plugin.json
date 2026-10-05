@@ -1,0 +1,153 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "tokyo-board",
+  "version": "0.4.0",
+  "description": "待機中の帯に東京の天気・運行情報・警報・ニュース・株価（数字とグラフ）を出す",
+  "author": {
+    "name": "y-ymmt"
+  },
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "ボードを出す",
+      "description": "待機中の帯に天気と運行情報を出す",
+      "default": true
+    },
+    "showFrom": {
+      "type": "string",
+      "title": "表示を始める時刻",
+      "description": "この時刻から天気・運行情報のボードを出す（PC の時計で HH:MM）。showUntil と同じか空なら終日",
+      "default": "17:00"
+    },
+    "showUntil": {
+      "type": "string",
+      "title": "表示を終える時刻",
+      "description": "この時刻でボードを消す（含まない）。24:00 は一日の終わり。22:00〜06:00 のように日をまたいでもよい",
+      "default": "24:00"
+    },
+    "lines": {
+      "type": "string",
+      "title": "見たい路線",
+      "description": "カンマ区切りの路線名（例: 山手線,東急田園都市線）",
+      "default": "山手線,東急田園都市線"
+    },
+    "trainRefreshSec": {
+      "type": "number",
+      "title": "運行情報の更新間隔（秒）",
+      "description": "Yahoo!路線情報を取りにいく間隔。60 秒より短くはしない",
+      "default": 180,
+      "min": 60,
+      "max": 3600
+    },
+    "weatherRefreshSec": {
+      "type": "number",
+      "title": "天気の更新間隔（秒）",
+      "description": "アメダスと Open-Meteo を取りにいく間隔。300 秒より短くはしない",
+      "default": 600,
+      "min": 300,
+      "max": 3600
+    },
+    "marqueeMs": {
+      "type": "number",
+      "title": "電光掲示板の流れる速さ（ミリ秒）",
+      "description": "1 セル進むまでの時間",
+      "default": 250,
+      "min": 100,
+      "max": 2000
+    },
+    "amedasPoint": {
+      "type": "string",
+      "title": "アメダスの地点番号",
+      "description": "既定 44132 は東京（大手町）",
+      "default": "44132"
+    },
+    "latitude": {
+      "type": "number",
+      "title": "緯度",
+      "description": "天気アイコンを引く地点の緯度",
+      "default": 35.6895,
+      "min": -90,
+      "max": 90
+    },
+    "longitude": {
+      "type": "number",
+      "title": "経度",
+      "description": "天気アイコンを引く地点の経度",
+      "default": 139.6917,
+      "min": -180,
+      "max": 180
+    },
+    "warningArea": {
+      "type": "string",
+      "title": "警報を見る区域",
+      "description": "気象庁の一次細分区域コード。既定 130010 は東京地方。警報・降水確率・地震の都道府県（先頭 2 桁）がまとめて切り替わる。例: 140010 神奈川県東部、110010 埼玉県南部、270000 大阪府",
+      "default": "130010"
+    },
+    "placeName": {
+      "type": "string",
+      "title": "地名",
+      "description": "天気パネルの見出しと地震の震度の前に出す地名。warningArea に合わせて変える",
+      "default": "東京"
+    },
+    "quakeWindowMin": {
+      "type": "number",
+      "title": "地震を出しておく時間（分）",
+      "description": "発生からこの時間だけ ⚠ 行に出す",
+      "default": 60,
+      "min": 5,
+      "max": 1440
+    },
+    "alerts": {
+      "type": "boolean",
+      "title": "警報と地震を出す",
+      "description": "異常があるときだけ ⚠ 行を出す",
+      "default": true
+    },
+    "news": {
+      "type": "boolean",
+      "title": "ニュースを流す",
+      "description": "NHK の見出しを掲示板の下の行に流す",
+      "default": true
+    },
+    "newsFeed": {
+      "type": "string",
+      "title": "ニュースの配信元（1 本だけ・旧設定）",
+      "description": "`newsFeeds` が空のときだけ見る。互換のために残してある",
+      "default": ""
+    },
+    "newsCount": {
+      "type": "number",
+      "title": "配信元 1 つあたりの見出しの本数",
+      "description": "配信元の数だけ掛かる（既定 4 配信元 × 3 本）",
+      "default": 3,
+      "min": 1,
+      "max": 15
+    },
+    "stock": {
+      "type": "boolean",
+      "title": "株価パネルを出す",
+      "description": "見出しのボタンで数字とグラフ（1日/1か月/3か月/1年/5年）を切り替える。横が足りないときは出さない",
+      "default": true
+    },
+    "stockCode": {
+      "type": "string",
+      "title": "銘柄コード",
+      "description": "東証の 4 桁。既定 7419 はノジマ",
+      "default": "7419"
+    },
+    "stockRefreshSec": {
+      "type": "number",
+      "title": "株価の更新間隔（秒）",
+      "description": "平日 8:55〜15:35 のあいだだけ繰り返し取る。この 1 点 1 点が「1日」のグラフになる",
+      "default": 180,
+      "min": 60,
+      "max": 3600
+    },
+    "newsFeeds": {
+      "type": "string",
+      "title": "ニュースの配信元",
+      "description": "`;` 区切りで 1 つずつ。各要素は `ラベル|URL|キーワード,キーワード,…`（キーワードは省略可＝全部通す）",
+      "default": "AI+|https://rss.itmedia.co.jp/rss/2.0/aiplus.xml;IT|https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml;NHK|https://news.google.com/rss/search?q=site:news.web.nhk+(AI+OR+IT+OR+%E3%82%B5%E3%82%A4%E3%83%90%E3%83%BC+OR+%E3%83%87%E3%82%B8%E3%82%BF%E3%83%AB+OR+%E5%8D%8A%E5%B0%8E%E4%BD%93+OR+%E3%83%AD%E3%83%9C%E3%83%83%E3%83%88)&hl=ja&gl=JP&ceid=JP:ja"
+    }
+  }
+}
