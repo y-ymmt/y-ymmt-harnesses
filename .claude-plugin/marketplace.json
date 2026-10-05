@@ -25,7 +25,7 @@
     {
       "name": "touch-tree",
       "description": "このセッションで Claude が読んだ・編集したファイルを、リポジトリのツリーに沿ってペインに出す Mod",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/touch-tree",
       "category": "productivity"
@@ -33,7 +33,7 @@
     {
       "name": "next-prompts",
       "description": "ターンが終わるたびに、次に打ちそうな依頼の候補をいくつかプロンプトの上に並べ、押すと入力欄に入れる Mod",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/next-prompts",
       "category": "productivity"
@@ -41,7 +41,7 @@
     {
       "name": "reply-prism",
       "description": "返事の表・コード・図・ツール行を色つきで描き、パスのリンク・表のコピー形式と並べ替え・長いブロックの折りたたみ・危ない語の強調を足した Mod（prismantis の改変版）",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/reply-prism",
       "category": "productivity"

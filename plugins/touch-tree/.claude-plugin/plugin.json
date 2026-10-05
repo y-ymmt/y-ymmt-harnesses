@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "touch-tree",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "このセッションで読んだ・編集したファイルを、リポジトリのツリーに沿ってペインに出す",
   "author": {
     "name": "y-ymmt"

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "next-prompts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ターンが終わるたびに、次に打ちそうな依頼の候補をいくつかプロンプトの上に並べ、押すと入力欄に入れる",
   "author": {
     "name": "y-ymmt"
