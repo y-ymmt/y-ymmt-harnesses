@@ -216,7 +216,7 @@ function flatten(node: Node): Element[] {
  * エンジンの木の検証に寄せた確認。落ちる理由を文字列で返す（通れば空）。
  *
  * - 要素は Box・Text・Button だけ
- * - Text の color は `#RRGGBB` の文字列、子は文字列か Text、1 つの文字列は 1 万文字まで
+ * - Text の color は `#RRGGBB` かテーマの色の名前（`userMessageBackground` など）の文字列、子は文字列か Text、1 つの文字列は 1 万文字まで
  * - Box の子は要素（裸の文字列は不可）、Button は子を持たず key・label・onPress がある
  * - bold・dimColor・underline は boolean
  */
@@ -241,7 +241,7 @@ function invalidReasonOf(node: Node, parent: string | null = null): string {
   for (const key of ['color', 'backgroundColor']) {
     const value = node.props[key]
 
-    if (value !== undefined && (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value))) {
+    if (value !== undefined && (typeof value !== 'string' || !/^(#[0-9a-f]{6}|[A-Za-z]+)$/i.test(value))) {
       return `${key} が文字列の色でない: ${String(value)}`
     }
   }
@@ -459,6 +459,27 @@ describe('記録と描画', () => {
     expect(invalidReasonOf(drawn)).toBe('')
     expect(treeLinesOf(drawn)).toHaveLength(MAX_ROWS)
     expect(textOf(drawn)).toContain('… ほか')
+  })
+})
+
+describe('ボタンの見た目', () => {
+  /** Button を直接の子に持つ Box。 */
+  const chipsOf = (node: Node) => flatten(node).filter(el => el.type === 'Box' && el.children.some(c => typeof c !== 'string' && c.type === 'Button'))
+
+  test('ペインのボタン（検索のみ・クリア・ファイル名）は、ホバーしていないときも背景色のある Box に包まれる', async () => {
+    const proc = new Process(FILES, new Map(), {})
+
+    await proc.sessionStart()
+    await proc.tool({ tool: 'Read', file_path: `${ROOT}/pom.xml` }, readResult(1, 5, 5))
+    await proc.advance(FLUSH_MS)
+
+    const drawn = await proc.pane(66)
+    const buttons = flatten(drawn).filter(el => el.type === 'Button')
+    const chips = chipsOf(drawn)
+
+    expect(buttons.length).toBeGreaterThanOrEqual(3)
+    expect(chips).toHaveLength(buttons.length)
+    for (const box of chips) expect(box.props['backgroundColor']).toBe('#4b5470')
   })
 })
 

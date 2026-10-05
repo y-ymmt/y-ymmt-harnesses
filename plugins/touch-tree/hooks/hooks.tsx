@@ -16,6 +16,11 @@ import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
 /** プラグイン名。$.state と ui.press の持ち主。 */
 const PLUGIN = 'touch-tree'
 
+// ボタンの常時の背景。Button には背景色の指定が無い（文字のスタイルと hover だけ）ので Box で包んで塗る。
+// Claude Code 本体のテーマの色なので、暗い背景でも明るい背景でも文字が読める。ホバーの反転とは別の層。
+// ボタンの下地。テーマの userMessageBackground では薄くて見えなかったので、暗い背景で目立つ濃い灰青にする。
+const CHIP_BACK = '#4b5470'
+
 /** 帯の下に固定で置く開け閉めボタンの key。 */
 const TOGGLE_BUTTON = 'touch-tree-toggle'
 
@@ -463,8 +468,12 @@ export const register: Register = (on, options) => {
           )}
         </Box>
         <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-          <Button key="hits" label={showHits ? '検索のみを隠す' : '検索のみも出す'} onPress={() => undefined} />
-          <Button key="clear" label="クリア" onPress={() => undefined} />
+          <Box key="hits.chip" flexShrink={0} backgroundColor={CHIP_BACK}>
+            <Button key="hits" label={showHits ? '検索のみを隠す' : '検索のみも出す'} onPress={() => undefined} />
+          </Box>
+          <Box key="clear.chip" flexShrink={0} backgroundColor={CHIP_BACK}>
+            <Button key="clear" label="クリア" onPress={() => undefined} />
+          </Box>
         </Box>
         <Text color={GUIDE_COLOR}>{'─'.repeat(Math.min(columns, 500))}</Text>
         {forest.hidden > 0 && <Text dimColor wrap="truncate-end">{`検索に出ただけの ${forest.hidden} 件を隠しています`}</Text>}
@@ -481,7 +490,9 @@ export const register: Register = (on, options) => {
               {row.symbol !== '' && <Text color={color}>{row.symbol}</Text>}
               <Box flexGrow={1} flexShrink={1} minWidth={0}>
                 {canOpen ? (
-                  <Button key={`${OPEN_PREFIX}${row.path}`} label={row.name} plain dimColor={row.state === 'hit'} onPress={() => undefined} />
+                  <Box key={`${OPEN_PREFIX}${row.path}.chip`} flexShrink={1} minWidth={0} backgroundColor={CHIP_BACK}>
+                    <Button key={`${OPEN_PREFIX}${row.path}`} label={row.name} plain dimColor={row.state === 'hit'} onPress={() => undefined} />
+                  </Box>
                 ) : (
                   <Text color={color} bold={row.kind !== 'file' || row.isLast === true} underline={row.isLast === true} wrap="truncate-end">
                     {row.name}
@@ -510,12 +521,14 @@ export const register: Register = (on, options) => {
     const { Box, Button } = $.ui.resolve(e)
     const button = (
       <Box key={slotKey(BAND_ORDER.touchTreeToggle, 'touch-tree')} flexDirection="row">
-        <Button
-          key={TOGGLE_BUTTON}
-          label={isPaneOpen ? 'touch-tree を閉じる' : 'touch-tree を開く'}
-          dimColor
-          onPress={() => undefined}
-        />
+        <Box key={`${TOGGLE_BUTTON}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
+          <Button
+            key={TOGGLE_BUTTON}
+            label={isPaneOpen ? 'touch-tree を閉じる' : 'touch-tree を開く'}
+            dimColor
+            onPress={() => undefined}
+          />
+        </Box>
       </Box>
     )
 
