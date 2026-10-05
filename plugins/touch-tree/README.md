@@ -14,8 +14,8 @@
 example-app/                 7 ✎2
 └ src/main/java/com/example/app/   6 ✎2
   ├ batch/                                2
-  │ ├ ◐ FN22701.java        1-80,200-249/400
-  │ └ ● FN27901.java                全120行
+  │ ├ ◐ Exports.java        1-80,200-249/400
+  │ └ ● Imports.java                全120行
   └ web/                               4 ✎2
     ├ ✎ ApiController.java          ✎1 全88行
     ├ ○ ApiService.java                 検索

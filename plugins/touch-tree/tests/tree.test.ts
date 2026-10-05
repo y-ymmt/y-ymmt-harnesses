@@ -29,8 +29,8 @@ const lineOf = (row: Row): string => `${row.guide}${row.name}${row.meta === '' ?
 describe('ツリーの組み立て', () => {
   test('共通の祖先（1 つしか子の無いディレクトリの連なり）は 1 行にまとめる', () => {
     const record = recordOf([
-      { path: `${JAVA}/batch/FN27901.java`, read: { whole: true, lines: 120 } },
-      { path: `${JAVA}/batch/FN22701.java`, read: { from: 1, to: 80, lines: 400, whole: false } },
+      { path: `${JAVA}/batch/Imports.java`, read: { whole: true, lines: 120 } },
+      { path: `${JAVA}/batch/Exports.java`, read: { from: 1, to: 80, lines: 400, whole: false } },
       { path: `${JAVA}/web/ApiController.java`, edit: true },
     ])
     const rows = rowsOf(forestOf(record, true), record.last)
@@ -39,8 +39,8 @@ describe('ツリーの組み立て', () => {
       'example-app/  3 ✎1',
       '└ src/main/java/com/example/app/  3 ✎1',
       '  ├ batch/  2',
-      '  │ ├ FN22701.java  1-80/400',
-      '  │ └ FN27901.java  全120行',
+      '  │ ├ Exports.java  1-80/400',
+      '  │ └ Imports.java  全120行',
       '  └ web/  1 ✎1',
       '    └ ApiController.java  ✎1',
     ])

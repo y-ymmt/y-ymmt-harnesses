@@ -277,8 +277,8 @@ const readResult = (startLine: number, numLines: number, totalLines: number) => 
 })
 
 const FILES = [
-  `${JAVA}/batch/FN27901.java`,
-  `${JAVA}/batch/FN22701.java`,
+  `${JAVA}/batch/Imports.java`,
+  `${JAVA}/batch/Exports.java`,
   `${JAVA}/web/ApiController.java`,
   `${JAVA}/web/ApiService.java`,
   `${ROOT}/pom.xml`,
@@ -337,9 +337,9 @@ describe('記録と描画', () => {
     expect(proc.commands).toEqual(['touch-tree'])
     expect(proc.opened).toEqual([])
 
-    await proc.tool({ tool: 'Read', file_path: `${JAVA}/batch/FN27901.java` }, readResult(1, 120, 120))
-    await proc.tool({ tool: 'Read', file_path: `${JAVA}/batch/FN22701.java`, offset: 1, limit: 80 }, readResult(1, 80, 400))
-    await proc.tool({ tool: 'Read', file_path: `${JAVA}/batch/FN22701.java`, offset: 200, limit: 50 }, readResult(200, 50, 400))
+    await proc.tool({ tool: 'Read', file_path: `${JAVA}/batch/Imports.java` }, readResult(1, 120, 120))
+    await proc.tool({ tool: 'Read', file_path: `${JAVA}/batch/Exports.java`, offset: 1, limit: 80 }, readResult(1, 80, 400))
+    await proc.tool({ tool: 'Read', file_path: `${JAVA}/batch/Exports.java`, offset: 200, limit: 50 }, readResult(200, 50, 400))
     await proc.tool({ tool: 'Edit', file_path: `${JAVA}/web/ApiController.java` }, { result: { filePath: '' }, text: 'ok' })
     await proc.tool({ tool: 'Write', file_path: `${JAVA}/web/NewDto.java` }, { result: { type: 'create', filePath: '' }, text: 'ok' })
     await proc.tool(
@@ -352,7 +352,7 @@ describe('記録と描画', () => {
     const record = proc.record()
 
     expect(record.root).toBe(ROOT)
-    expect(record.files[`${JAVA}/batch/FN22701.java`]?.ranges).toEqual([[1, 80], [200, 249]])
+    expect(record.files[`${JAVA}/batch/Exports.java`]?.ranges).toEqual([[1, 80], [200, 249]])
     expect(record.files[`${JAVA}/web/ApiService.java`]?.hits).toBe(1)
     expect(record.files[`${JAVA}/web/Gone.java`], '実在しないパスは拾わない').toBeUndefined()
     expect(record.last).toBe(`${HOME}/.claude/CLAUDE.md`)
@@ -364,8 +364,8 @@ describe('記録と描画', () => {
       'example-app/ 5 ✎2',
       '└ src/main/java/com/example/app/ 5 ✎2',
       '  ├ batch/ 2',
-      '  │ ├ ◐ FN22701.java 1-80,200-249/400',
-      '  │ └ ● FN27901.java 全120行',
+      '  │ ├ ◐ Exports.java 1-80,200-249/400',
+      '  │ └ ● Imports.java 全120行',
       '  └ web/ 3 ✎2',
       '    ├ ✎ ApiController.java ✎1',
       '    ├ ○ ApiService.java 検索',
