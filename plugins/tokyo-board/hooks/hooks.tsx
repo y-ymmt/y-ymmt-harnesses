@@ -12,32 +12,16 @@ import {
   BOARD_BACK,
   BOARD_FRAME,
   BOARD_ROWS,
-  CHART_COLUMNS,
   NEWS_HEAD,
   NEWS_LABEL,
   NEWS_TEXT,
-  NUMBER_FACE,
   PANEL_ROWS,
   PANEL_WIDTH,
   newsWindowOf,
-  stockHeadOf,
-  stockPanel,
   transitBoard,
   weatherPanel,
 } from './board'
-import type { Line, StockChart } from './board'
-import {
-  PERIOD_LABEL,
-  historyUrlsOf,
-  intradaySlots,
-  jstDayOf,
-  nextPeriod,
-  parseHistory,
-  periodOf,
-  resample,
-  shortDateOf,
-} from './chart'
-import type { HistoryPoint, Period, Tick } from './chart'
+import type { Line } from './board'
 import {
   AREA_URL,
   USER_AGENT,
@@ -85,8 +69,6 @@ import {
   parseFeedSpecs,
 } from './news'
 import type { FeedSpec, NewsItem, NewsLine } from './news'
-import { isMarketOpen, parseQuote, quoteUrl } from './stock'
-import type { Quote } from './stock'
 
 /** 路線一覧を覚えておく時間（ミリ秒）。1 日。 */
 const AREA_TTL_MS = 24 * 60 * 60 * 1000
@@ -106,39 +88,17 @@ const BOARD_MAX = 72
 /** 掲示板をこれより狭くはしない。 */
 const BOARD_MIN = 24
 
-/** 株価パネルの見出しに置くボタンの名札。 */
-const STOCK_BUTTON = 'stock-face'
-
 /**
- * 覚えておいたものを戻す。
- *
- * 面（どのグラフを出していたか）、期間ごとの時系列、当日の記録の 3 つ。
- * 日付が変わっていれば当日の記録は捨てる。
+ * 覚えておいたもの（ボタンで決めた表示）を戻す。
  *
  * @param $ エンジン
  * @param board このセッションの状態
  */
 async function restore($: EngineInterface, board: Board): Promise<void> {
-  board.today = jstDayOf(await $.clock.now())
   const chosen = await $.store.get('board.override')
 
   board.override = chosen === 'show' || chosen === 'hide' ? chosen : null
-  board.period = periodOf(await $.store.get('stock.period'))
 
-  const charts = await $.store.get('stock.charts')
-
-  if (typeof charts === 'object' && charts !== null) {
-    board.charts = charts as Record<string, { on: string; points: HistoryPoint[] }>
-  }
-
-  const ticks = await $.store.get('stock.ticks')
-  const kept = ticks as { on?: unknown; list?: unknown } | null
-
-  if (typeof kept?.on === 'string' && Array.isArray(kept.list) && kept.on === board.today) {
-    board.ticks = { on: kept.on, list: kept.list as Tick[] }
-  }
-
-  await ensureChart($, board)
   await repaint($, board)
 }
 
@@ -166,7 +126,6 @@ type Board = {
   /** 取りにいく間隔（ミリ秒）。 */
   readonly trainMs: number
   readonly weatherMs: number
-  readonly stockMs: number
   /** マーキーが 1 セル進むまで（ミリ秒）。 */
   readonly marqueeMs: number
   /** アメダスの地点と、天気アイコンを引く座標。 */
@@ -184,19 +143,6 @@ type Board = {
   readonly feeds: readonly FeedSpec[]
   /** 配信元 1 つあたりの見出しの本数。 */
   readonly newsCount: number
-  /** 株価。 */
-  readonly showStock: boolean
-  readonly stockCode: string
-  /** いま出している面（数字の板かグラフ）。ボタンで変わり、`$.store` に残る。 */
-  period: Period
-  /** 期間ごとの時系列（日付が変わるまで使い回す）。 */
-  charts: Record<string, { on: string; points: HistoryPoint[] }>
-  /** 当日の記録（3 分ごとの株価取得を貯めたもの）。 */
-  ticks: { on: string; list: Tick[] }
-  /** 時系列を取りにいっている最中か（二重に取らない）。 */
-  chartBusy: boolean
-  /** 日本時間のきょう（`YYYY-MM-DD`）。 */
-  today: string
   /** 走っているターンがあるか。ある間は取りにいかない。 */
   isWorking: boolean
   /** 実況。まだ取れていなければ null。 */
@@ -213,15 +159,12 @@ type Board = {
   news: NewsLine
   /** 配信元ごとの見出し（1 本落ちても他は残す）。 */
   newsByFeed: Record<string, NewsItem[]>
-  /** 株価の板。 */
-  quote: Quote | null
   /** 路線名 → id。1 日覚えておく。 */
   area: Record<string, string>
   areaAtMs: number
   /** それぞれ、取りにいけなかったか（薄字で出す）。 */
   weatherStale: boolean
   transitStale: boolean
-  stockStale: boolean
   /** 天気を最後に取りにいった時刻（`HH:MM`）。運行の時刻は各路線が持つ。 */
   weatherAt: string
   /** マーキーを進めた回数。 */
@@ -445,200 +388,6 @@ async function fetchNews($: EngineInterface, board: Board): Promise<void> {
 }
 
 /**
- * 株価を取りにいく。
- *
- * 場が開いている平日の 8:55〜15:35 だけ繰り返し取り、それ以外は 1 度取った
- * 終値をそのまま出す（休みの日に 3 分ごと同じ値を取りにいかないため）。
- *
- * @param $ エンジン
- * @param board このセッションの状態
- */
-async function fetchStock($: EngineInterface, board: Board): Promise<void> {
-  if (!isVisible(board) || !board.showStock || board.isWorking) {
-    return
-  }
-
-  const nowMs = await $.clock.now()
-
-  if (board.quote !== null && !isMarketOpen(nowMs)) {
-    return
-  }
-
-  const html = await getText($, quoteUrl(board.stockCode))
-  const quote = html === null ? null : parseQuote(html)
-
-  if (quote === null) {
-    board.stockStale = true
-  } else {
-    board.quote = quote
-    board.stockStale = false
-
-    await recordTick($, board, nowMs, quote.at, quote.price)
-  }
-
-  await repaint($, board)
-}
-
-/**
- * 当日の値動きを 1 点ぶん覚える。
- *
- * 分足を無料で配っているところが見当たらないので、3 分ごとの株価取得を
- * そのまま「1 日」のグラフの点にする。日付が変わったら前の日のぶんは捨てる。
- *
- * @param $ エンジン
- * @param board このセッションの状態
- * @param nowMs いまの時刻
- * @param at 板の時刻（`HH:MM`）
- * @param price 現在値
- */
-async function recordTick(
-  $: EngineInterface,
-  board: Board,
-  nowMs: number,
-  at: string,
-  price: number | null,
-): Promise<void> {
-  const today = jstDayOf(nowMs)
-
-  board.today = today
-
-  if (price === null || !/^\d{1,2}:\d{2}$/.test(at) || !isMarketOpen(nowMs)) {
-    return
-  }
-
-  if (board.ticks.on !== today) {
-    board.ticks = { on: today, list: [] }
-  }
-
-  const last = board.ticks.list[board.ticks.list.length - 1]
-
-  if (last !== undefined && last.at === at) {
-    return
-  }
-
-  board.ticks.list = [...board.ticks.list, { at, price }].slice(-400)
-
-  await $.store.set('stock.ticks', board.ticks)
-}
-
-/**
- * いま出している面の時系列を、まだ無ければ取りにいく。
- *
- * 面を初めて開いたときに 1 回だけ取り、あとは日付が変わるまで使い回す。
- * ページを順に取り、途中で駄目になったら取れたぶんで描く。
- *
- * @param $ エンジン
- * @param board このセッションの状態
- */
-async function ensureChart($: EngineInterface, board: Board): Promise<void> {
-  const period = board.period
-
-  if (!isVisible(board) || !board.showStock || board.isWorking || board.chartBusy) {
-    return
-  }
-
-  if (period === 'number' || period === 'day') {
-    return
-  }
-
-  const nowMs = await $.clock.now()
-  const today = jstDayOf(nowMs)
-
-  board.today = today
-
-  if (board.charts[period]?.on === today) {
-    return
-  }
-
-  board.chartBusy = true
-
-  const found: HistoryPoint[] = []
-
-  for (const url of historyUrlsOf(board.stockCode, period, nowMs)) {
-    const html = await getText($, url)
-
-    if (html === null) {
-      break
-    }
-
-    found.push(...parseHistory(html))
-  }
-
-  board.chartBusy = false
-
-  if (found.length === 0) {
-    return
-  }
-
-  const merged = [...new Map(found.map(point => [point.date, point])).values()].sort((a, b) =>
-    a.date.localeCompare(b.date),
-  )
-
-  board.charts = { ...board.charts, [period]: { on: today, points: merged } }
-
-  await $.store.set('stock.charts', board.charts)
-  await repaint($, board)
-}
-
-/**
- * いま出す面を組み立てる。
- *
- * 最新の点は現在値にする。日足の最終日がきょうなら置き換え、まだ前の営業日の
- * ままなら 1 点足す。
- *
- * @param board このセッションの状態
- */
-function chartOf(board: Board): StockChart {
-  const width = CHART_COLUMNS * 2
-
-  if (board.period === 'number') {
-    return NUMBER_FACE
-  }
-
-  if (board.period === 'day') {
-    const list = board.ticks.on === board.today ? board.ticks.list : []
-
-    if (list.length < 2) {
-      return { period: 'day', slots: [], from: '', to: '', note: '3分ごとに記録します' }
-    }
-
-    return {
-      period: 'day',
-      slots: intradaySlots(list, width),
-      from: '09:00',
-      to: '15:30',
-      note: '',
-    }
-  }
-
-  const cached = board.charts[board.period]
-
-  if (cached === undefined || cached.points.length === 0) {
-    return { period: board.period, slots: [], from: '', to: '', note: '取得中…' }
-  }
-
-  const closes = cached.points.map(point => point.close)
-  const price = board.quote?.price ?? null
-  const lastDate = cached.points[cached.points.length - 1]?.date ?? ''
-
-  if (price !== null) {
-    if (lastDate === board.today) {
-      closes[closes.length - 1] = price
-    } else {
-      closes.push(price)
-    }
-  }
-
-  return {
-    period: board.period,
-    slots: resample(closes, width),
-    from: shortDateOf(cached.points[0]?.date ?? ''),
-    to: lastDate === board.today ? shortDateOf(lastDate) : shortDateOf(board.today),
-    note: '',
-  }
-}
-
-/**
  * 運行情報を取りにいく。路線名 → id は 1 日覚えておく。
  *
  * 平常 ↔ 異常が入れ替わったらトーストで知らせる（ターン中でも鳴る）。
@@ -711,7 +460,7 @@ async function fetchTransit($: EngineInterface, board: Board): Promise<void> {
 /**
  * マーキーを 1 セル進める。
  *
- * ターン中は止める。`$.ui.invalidate` は 10/s までで、処理中は zawa-claude の
+ * ターン中は止める。`$.ui.invalidate` は 10/s までで、処理中は turn-counter の
  * スピナーが枠を使うので、ここまで重ねると上限に触れる。待機中だけ流す。
  */
 async function stepMarquee($: EngineInterface, board: Board): Promise<void> {
@@ -742,7 +491,6 @@ function fetchAll($: EngineInterface, board: Board): void {
   void fetchTransit($, board)
   void fetchAlerts($, board)
   void fetchNews($, board)
-  void fetchStock($, board)
 }
 
 /** 人の指定を変え、出し始めたなら取りにいって、描き直す。 */
@@ -786,11 +534,10 @@ async function checkWindow($: EngineInterface, board: Board): Promise<void> {
 
 async function repaint($: EngineInterface, board: Board): Promise<void> {
   const weather = `${board.sky}|${board.weather?.at ?? ''}|${board.weatherAt}|${board.forecast.pop ?? ''}/${board.forecast.high ?? ''}/${board.forecast.low ?? ''}/${board.forecast.sunset ?? ''}`
-  const stale = `${board.weatherStale ? 1 : 0}${board.transitStale ? 1 : 0}${board.stockStale ? 1 : 0}`
+  const stale = `${board.weatherStale ? 1 : 0}${board.transitStale ? 1 : 0}`
   const rails = board.transit.map(line => `${line.name}:${line.isNormal ? 1 : 0}:${line.text}`).join('/')
   const alerts = `${board.alerts.warnings.map(warning => warning.code).join(',')}|${board.alerts.quake?.eid ?? ''}`
-  const quote = `${board.quote?.price ?? ''}/${board.quote?.at ?? ''}/${board.quote?.volume ?? ''}|${board.period}|${board.charts[board.period]?.points.length ?? 0}|${board.ticks.list.length}`
-  const shape = `${board.step}|${weather}|${stale}|${rails}|${alerts}|${board.news.text}|${quote}`
+  const shape = `${board.step}|${weather}|${stale}|${rails}|${alerts}|${board.news.text}`
 
   if (shape === board.shown) {
     return
@@ -816,7 +563,6 @@ export const register: Register = (on, options) => {
     wanted: linesOf(stringOf(options['lines'], '山手線,東急田園都市線')),
     trainMs: numberOf(options['trainRefreshSec'], 180, 60, 3600) * 1000,
     weatherMs: numberOf(options['weatherRefreshSec'], 600, 300, 3600) * 1000,
-    stockMs: numberOf(options['stockRefreshSec'], 180, 60, 3600) * 1000,
     marqueeMs: numberOf(options['marqueeMs'], 250, 100, 2000),
     point: stringOf(options['amedasPoint'], '44132'),
     latitude: numberOf(options['latitude'], 35.6895, -90, 90),
@@ -836,13 +582,6 @@ export const register: Register = (on, options) => {
       ),
     ),
     newsCount: numberOf(options['newsCount'], 3, 1, 15),
-    showStock: booleanOf(options['stock'], true),
-    stockCode: stringOf(options['stockCode'], '7419'),
-    period: 'number',
-    charts: {},
-    ticks: { on: '', list: [] },
-    chartBusy: false,
-    today: '',
     isWorking: false,
     weather: null,
     sky: 'cloud',
@@ -851,12 +590,10 @@ export const register: Register = (on, options) => {
     alerts: NO_ALERTS,
     news: NO_NEWS,
     newsByFeed: {},
-    quote: null,
     area: {},
     areaAtMs: -AREA_TTL_MS,
     weatherStale: false,
     transitStale: false,
-    stockStale: false,
     weatherAt: '--:--',
     step: 0,
     shown: '',
@@ -865,7 +602,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', ($, e, next) => {
     if (board.timers.length === 0 && board.isShown) {
-      // 前に選んでいた面と、取ってあった時系列を戻す。
+      // 前にボタンで決めた表示を戻す。
       void restore($, board)
       board.timers.push(
         $.clock.every(board.weatherMs, () => {
@@ -879,9 +616,6 @@ export const register: Register = (on, options) => {
         }),
         $.clock.every(NEWS_MS, () => {
           void fetchNews($, board)
-        }),
-        $.clock.every(board.stockMs, () => {
-          void fetchStock($, board)
         }),
         $.clock.every(board.marqueeMs, () => {
           void stepMarquee($, board)
@@ -897,19 +631,6 @@ export const register: Register = (on, options) => {
 
       void checkWindow($, board)
     }
-
-    return next(e)
-  })
-
-  // 見出しのボタン。押すと次の面へ進み、覚えておく。
-  on('ui.press', { element: STOCK_BUTTON }, async ($, e, next) => {
-    board.period = nextPeriod(board.period)
-
-    await $.store.set('stock.period', board.period)
-
-    $.ui.invalidate('ui.render')
-
-    void ensureChart($, board)
 
     return next(e)
   })
@@ -967,7 +688,7 @@ export const register: Register = (on, options) => {
      *
      * （`$` をトップレベル以外の関数に閉じ込めると `validate --strict` が嫌がる）
      */
-    const pressFace = (): void => undefined
+    const pressToggle = (): void => undefined
 
     // ボードの下に置く出し入れボタン。ボードの有無で位置が動かない。
     const visible = isVisible(board) && PANEL_ROWS + 1 <= e.props.maxRows
@@ -977,7 +698,7 @@ export const register: Register = (on, options) => {
           key={TOGGLE_BUTTON}
           label={visible ? '天気・運行を隠す' : '天気・運行を表示'}
           dimColor
-          onPress={pressFace}
+          onPress={pressToggle}
         />
       </Box>
     )
@@ -995,12 +716,9 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // 株価パネルは 3 面目。横が足りないときは出さない（天気と掲示板を守る）。
-    const hasStock =
-      board.showStock && e.props.bodyColumns >= PANEL_WIDTH * 2 + BOARD_MIN + GUTTER * 3
-    const sides = PANEL_WIDTH + GUTTER + (hasStock ? PANEL_WIDTH + GUTTER : 0)
-    const room = Math.max(PANEL_WIDTH + sides, e.props.bodyColumns - GUTTER)
-    const railsWidth = Math.max(BOARD_MIN, Math.min(room - sides, BOARD_MAX))
+    // 天気パネル（＋間の余白）の残りを掲示板に回す。右端に 1 セル空け、BOARD_MIN〜BOARD_MAX に収める。
+    const sides = PANEL_WIDTH + GUTTER
+    const railsWidth = Math.max(BOARD_MIN, Math.min(e.props.bodyColumns - GUTTER - sides, BOARD_MAX))
     const width = sides + railsWidth
     const alerts = board.showAlerts ? board.alerts : NO_ALERTS
     const panel = weatherPanel(
@@ -1019,9 +737,6 @@ export const register: Register = (on, options) => {
     })
     // ニュース行は見出しごとに別々のリンクにするので、断片に切って組み立てる。
     const newsRuns = marqueeRunsOf(news, newsWindowOf(railsWidth), board.step)
-    const face = chartOf(board)
-    const stock = stockPanel(board.quote, board.stockStale, face)
-    const stockHead = stockHeadOf(board.quote, board.period)
 
     // 掲示板の行の並び（枠 → 路線 → ⚠ → 空行 → NHK → 枠）に合わせてリンクを配る。
     const alertRows = hasAlerts(alerts) ? 1 : 0
@@ -1099,23 +814,6 @@ export const register: Register = (on, options) => {
               )
             })}
           </Box>
-          {hasStock ? (
-            <Box flexDirection="column">
-              {/* 見出しは面を切り替えるボタン。押すと数字 → 1日 → … と回る。 */}
-              <Box flexDirection="row">
-                <Link href={quoteUrl(board.stockCode)}>{runsOf(stockHead.before)}</Link>
-                <Button
-                  key={STOCK_BUTTON}
-                  label={stockHead.label}
-                  onPress={pressFace}
-                />
-                {runsOf(stockHead.after)}
-              </Box>
-              {stock.slice(1).map(line => (
-                <Text wrap="truncate-end">{runsOf(line)}</Text>
-              ))}
-            </Box>
-          ) : null}
         </Box>
       </Box>
     )

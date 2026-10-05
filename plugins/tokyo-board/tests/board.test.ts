@@ -4,7 +4,6 @@ import {
   BOARD_ROWS,
   PANEL_ROWS,
   PANEL_WIDTH,
-  stockPanel,
   bigDigits,
   displayWidth,
   marqueeOf,
@@ -71,7 +70,9 @@ describe('board', () => {
     expect(displayWidth('山手a線')).toBe(7)
     expect(padTo('山手線', 10)).toBe('山手線    ')
     expect(displayWidth(padTo('山手線', 10))).toBe(10)
-    expect(displayWidth(padTo('車両故障の影響で', 5)), '長ければ切る').toBe(4)
+    // 長ければ切る。全角の途中で切れるぶんは空白で埋め、幅はちょうど 5 に保つ（パネルの桁が崩れないように）
+    expect(padTo('車両故障の影響で', 5), '長ければ切る').toBe('車両 ')
+    expect(displayWidth(padTo('車両故障の影響で', 5)), '幅はちょうど').toBe(5)
   })
 
   test('電光掲示板は短い文でも必ず一周する', () => {
@@ -106,10 +107,12 @@ describe('board', () => {
       expect(displayWidth(row) <= 3 * 2 + 1, `「21」で ${displayWidth(row)} セル`).toBe(true)
     }
 
-    expect(bigDigits('0')[1], '0 の真ん中は空く').toBe('█ █')
-    expect(bigDigits('8')[1], '8 の真ん中には棒が入る').toBe('█▄█')
-    expect(bigDigits('1')[0]).toBe('  █')
-    expect(bigDigits('-')[1]).toBe(' ▄ ')
+    // 字形は横 3 × 縦 6 ドット。上下 2 ドットを半分ブロック 1 セルに詰めるので、6 ドット行が 3 セル行になる。
+    // 3・5・6・8・9 の中の横棒は 3 ドット行目（真ん中のセル行の上半分）にある。
+    expect(bigDigits('0'), '0 の真ん中は空く').toEqual(['█▀█', '█ █', '█▄█'])
+    expect(bigDigits('8'), '8 の真ん中のセル行には上半分に横棒が入る').toEqual(['█▀█', '█▀█', '█▄█'])
+    expect(bigDigits('1'), '行末の空白は落とす').toEqual(['▄█', ' █', '▄█▄'])
+    expect(bigDigits('-'), '- は真ん中のセル行いっぱい').toEqual(['', '███', ''])
   })
 
   test('天気パネルは 26 セル幅・7 行の枠になる', () => {
@@ -167,7 +170,7 @@ describe('board', () => {
   })
 })
 
-describe('警報行・ニュース行・株価パネル', () => {
+describe('警報行・ニュース行', () => {
   const ALERT = {
     warnings: [{ code: '03', name: '大雨警報', severity: 'warning' as const }],
     quake: null,
@@ -194,37 +197,5 @@ describe('警報行・ニュース行・株価パネル', () => {
       plain.map(line => line.map(run => run.text).join('')).join(''),
       'ふだんは出ない',
     ).not.toContain('▲')
-  })
-
-  test('株価パネルは 26 セル幅・7 行で、日本式に上げが赤・下げが緑', () => {
-    const quote = {
-      name: 'ノジマ',
-      code: '7419',
-      price: 1285,
-      change: 26,
-      changeRate: 2.07,
-      open: 1254,
-      high: 1289,
-      low: 1254,
-      previousClose: 1259,
-      volume: 238100,
-      at: '13:09',
-    }
-    const up = stockPanel(quote, false)
-    const down = stockPanel({ ...quote, change: -26, changeRate: -2.06 }, false)
-
-    for (const panel of [up, down, stockPanel(null, true)]) {
-      expect(panel).toHaveLength(PANEL_ROWS)
-
-      for (const line of panel) {
-        expect(displayWidth(line.map(run => run.text).join(''))).toBe(PANEL_WIDTH)
-      }
-    }
-
-    expect(up[0]?.map(run => run.text).join('')).toContain('ノジマ 7419')
-    expect(up[2]?.some(run => run.color === '#FF4D4D'), '上げは赤').toBe(true)
-    expect(down[2]?.some(run => run.color === '#3DDC84'), '下げは緑').toBe(true)
-    expect(up[4]?.map(run => run.text).join(''), 'レンジ棒').toContain('●')
-    expect(up[5]?.map(run => run.text).join('')).toContain('23.8万株')
   })
 })

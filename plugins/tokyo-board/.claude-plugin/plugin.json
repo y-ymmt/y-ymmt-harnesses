@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "tokyo-board",
-  "version": "0.4.0",
-  "description": "待機中の帯に東京の天気・運行情報・警報・ニュース・株価（数字とグラフ）を出す",
+  "version": "0.5.0",
+  "description": "待機中の帯に東京の天気・運行情報・警報・ニュースを出す",
   "author": {
     "name": "y-ymmt"
   },
@@ -122,26 +122,6 @@
       "default": 3,
       "min": 1,
       "max": 15
-    },
-    "stock": {
-      "type": "boolean",
-      "title": "株価パネルを出す",
-      "description": "見出しのボタンで数字とグラフ（1日/1か月/3か月/1年/5年）を切り替える。横が足りないときは出さない",
-      "default": true
-    },
-    "stockCode": {
-      "type": "string",
-      "title": "銘柄コード",
-      "description": "東証の 4 桁。既定 7419 はノジマ",
-      "default": "7419"
-    },
-    "stockRefreshSec": {
-      "type": "number",
-      "title": "株価の更新間隔（秒）",
-      "description": "平日 8:55〜15:35 のあいだだけ繰り返し取る。この 1 点 1 点が「1日」のグラフになる",
-      "default": 180,
-      "min": 60,
-      "max": 3600
     },
     "newsFeeds": {
       "type": "string",

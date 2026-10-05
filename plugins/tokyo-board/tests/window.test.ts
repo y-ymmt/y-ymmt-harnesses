@@ -1,7 +1,8 @@
-// bun test plugins/tokyo-board/tests/window.test.ts
-import { expect, test } from 'bun:test'
+import { expect, test, tier } from 'claude-code/testing'
 
 import { isWithin, minutesOf, windowOf } from '../hooks/window'
+
+tier('user')
 
 /** 今日のローカル時刻 HH:MM のミリ秒。 */
 const at = (hh: number, mm: number): number => new Date(2026, 9, 5, hh, mm, 0).getTime()
