@@ -513,8 +513,3 @@ function newsRow(news: string, inner: number, step: number): Line {
     { text: '║', color: BOARD_FRAME },
   ]
 }
-
-/** 取れていないときの一言。 */
-export function staleNote(at: string): Line {
-  return [{ text: `取得できず ${at}`, dimColor: true }]
-}

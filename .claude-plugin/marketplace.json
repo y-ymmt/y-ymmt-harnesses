@@ -17,7 +17,7 @@
     {
       "name": "tokyo-board",
       "description": "プロンプト上の帯に東京の天気・運行情報・警報・IT/AI ニュースを夕方から表示する Mod",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/tokyo-board",
       "category": "productivity"

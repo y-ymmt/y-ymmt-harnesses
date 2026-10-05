@@ -76,7 +76,7 @@ Claude Code プラグイン（function hooks）。天気パネルと掲示板は
 - キーワードは**見出しだけ**を見て、大文字小文字を無視した部分一致。
 - 同じ見出しは配信元をまたいで 1 本にし（ITmedia NEWS と AI＋ は重なる）、
   **配信元を交互に**並べる（AI+ → IT → NHK → AI+ …）。本数は `newsCount`
-  （**配信元 1 つあたり**。既定 3 なので 4 本で 9〜12 本）。
+  （**配信元 1 つあたり**。既定 3 なので 3 本で最大 9 本）。
 - 流す文は `[AI+] 見出し　◆　[IT] 見出し　◆　…`。行頭の固定ラベルは白太字の `NEWS`。
 - **リンクは見出しごとに別々**。`marqueeRunsOf` が、流れている行を「いま窓に
   見えている見出しの断片」に切って返し（位置の決め方は `marqueeOf` と同じで、
@@ -154,9 +154,6 @@ Claude Code プラグイン（function hooks）。天気パネルと掲示板は
 | `newsFeed` | string | （空） | 旧設定。`newsFeeds` が空のときだけ 1 本として読む |
 | `newsCount` | number (1〜15) | `3` | **配信元 1 つあたり**の見出しの本数 |
 
-0.4.0 までの株価の設定（`stock` / `stockCode` / `stockRefreshSec`）は 0.5.0 で株価の機能ごと無くした。
-設定に残っていても読まないだけで、害は無い（消してもよい）。
-
 ## 壊れたときの見分け方と直し方
 
 Yahoo!路線情報は HTML を読んでいるので、**先方のページ構造が変われば壊れる**。
@@ -231,7 +228,7 @@ hooks/alerts.ts              気象庁の警報コード表・区域の読み取
 hooks/news.ts                RSS/Atom の解析・絞り込み・交互並べ・見出しごとの断片
 hooks/board.ts               表示幅・マーキー・大きい数字・天気パネルと掲示板の組み立て
 hooks/window.ts              表示の時間帯（showFrom / showUntil）
-hooks/band.ts                帯の並び順（touch-tree・next-prompts と同じ中身）
+hooks/band.ts                帯の並び順（touch-tree・next-prompts・prompt-trail と同じ中身）
 tests/*.test.ts              claude-code/testing のテスト
 tsconfig.json                JSX の factory（`h`）
 ```
@@ -244,7 +241,7 @@ tsconfig.json                JSX の factory（`h`）
 `claude plugin test`（Claude Code 2.1.289 で確かめた）で、リポジトリの直下から走らせる:
 
 ```
-claude plugin test plugins/tokyo-board   # 4 ファイル・32 件
+claude plugin test plugins/tokyo-board   # 5 ファイル・38 件
 ```
 
 | ファイル | 見ているもの |
@@ -252,7 +249,8 @@ claude plugin test plugins/tokyo-board   # 4 ファイル・32 件
 | `tests/board.test.ts` | アメダスの読み取り・天気コード・表示幅・マーキー・大きい数字・天気パネルと掲示板の幅と行数 |
 | `tests/transit.test.ts` | 運行情報ページの読み取り（実物から切り出した塊）・路線名 → id・状態変化の検知 |
 | `tests/window.test.ts` | 表示の時間帯（日をまたぐ指定・終日）と、回の始まり |
-| `tests/buttons.test.ts` | エンジンの上で帯（`AbovePrompt`）を描き、出し入れボタンを押す。時計は止め、`$.http.fetch` は既定で全部失敗させる（通信しない）。ボタンで決めた状態が同じ回のうちは次のセッションへ持ち越され、別の回のものは捨てられ、17:00・24:00 の出入りで解かれること。`-p`・デスクトップでは取りにいかないこと。リンク先が `warningArea` の府県になること（警報の JSON だけ最小の形を返す）。株価があった頃の設定が残っていても読み込めることも見る |
+| `tests/news.test.ts` | 既定の配信元が 3 つであることと、NHK のサイトそのものの判定 |
+| `tests/buttons.test.ts` | エンジンの上で帯（`AbovePrompt`）を描き、出し入れボタンを押す。時計は止め、`$.http.fetch` は既定で全部失敗させる（通信しない）。ボタンで決めた状態が同じ回のうちは次のセッションへ持ち越され、別の回のものは捨てられ、17:00・24:00 の出入りで解かれること。`-p`・デスクトップでは取りにいかないこと。リンク先が `warningArea` の府県になること（警報の JSON だけ最小の形を返す）。既定の配信元が `news.ts` と plugin.json の `newsFeeds.default` で同じこと（エンジンが plugin.json の既定を渡すので、設定なしで取りにいく URL を見る）と、NHK の配信元が取れないときの救済（Google ニュースの検索 URL では働かず、NHK のサイトそのものの URL でだけ働く）も見る |
 
 どれも `claude-code/testing` を import するので `bun test` では走らない（この import はエンジンが渡す）。
 `tests/buttons.test.ts` が描いた木はエンジンが端末の要素表で検証するので、`color` に数値を渡すような

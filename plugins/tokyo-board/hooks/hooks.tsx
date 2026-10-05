@@ -63,6 +63,7 @@ import {
   NEWS_URL_FALLBACK,
   NO_NEWS,
   interleave,
+  isNhkSite,
   marqueeRunsOf,
   matchesKeywords,
   newsLineOf,
@@ -148,9 +149,9 @@ async function start($: EngineInterface, board: Board): Promise<void> {
 /** ボードを出し入れするボタンの key。帯のいちばん下に固定で置く。 */
 const TOGGLE_BUTTON = 'board-toggle'
 
-// ボタンの常時の背景。Button には背景色の指定が無い（文字のスタイルと hover だけ）ので Box で包んで塗る。
-// Claude Code 本体のテーマの色なので、暗い背景でも明るい背景でも文字が読める。ホバーの反転とは別の層。
-// ボタンの下地。テーマの userMessageBackground では薄くて見えなかったので、暗い背景で目立つ濃い灰青にする。
+// ボタンの常時の背景（ホバーの反転とは別の層）。Button には背景色の指定が無い（文字のスタイルと
+// hover だけ）ので Box で包んで塗る。テーマの userMessageBackground では薄くて見えなかったので、
+// 暗い背景で目立つ濃い灰青にする。
 const CHIP_BACK = '#4b5470'
 
 /** 時間帯の出入りを見直す間隔（ミリ秒）。 */
@@ -413,7 +414,7 @@ async function fetchNews($: EngineInterface, board: Board): Promise<void> {
   for (const feed of board.feeds) {
     const primary = await getText($, feed.url)
     const xml =
-      primary ?? (feed.url.includes('news.web.nhk') ? await getText($, NEWS_URL_FALLBACK) : null)
+      primary ?? (isNhkSite(feed.url) ? await getText($, NEWS_URL_FALLBACK) : null)
 
     if (xml === null) {
       continue
@@ -526,7 +527,6 @@ async function stepMarquee($: EngineInterface, board: Board): Promise<void> {
   await repaint($, board)
 }
 
-/** 姿が変わっていれば描き直す。 */
 /** 今ボードを出すか。人の指定があればそれ、無ければ時間帯どおり。 */
 function isVisible(board: Board): boolean {
   if (!board.isShown) return false
@@ -593,6 +593,7 @@ async function checkWindow($: EngineInterface, board: Board): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
+/** 姿が変わっていれば描き直す。 */
 async function repaint($: EngineInterface, board: Board): Promise<void> {
   const weather = `${board.sky}|${board.weather?.at ?? ''}|${board.weatherAt}|${board.forecast.pop ?? ''}/${board.forecast.high ?? ''}/${board.forecast.low ?? ''}/${board.forecast.sunset ?? ''}`
   const stale = `${board.weatherStale ? 1 : 0}${board.transitStale ? 1 : 0}`

@@ -4,6 +4,8 @@ import { expect, mock, test, tier } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { DEFAULT_NEWS_FEEDS, parseFeedSpecs } from '../hooks/news'
+
 tier('user')
 
 const PLUGIN = 'tokyo-board'
@@ -156,16 +158,32 @@ test('時間帯の外（11 時）: 「表示」が出て、押すとその場で
   await ui.unmount()
 })
 
-test('株価があった頃の設定（stock など）が残っていても読み込めて、株価には取りにいかない', { options: { stock: false, stockCode: '1234', stockRefreshSec: 60 } }, async ($, on) => {
+const NHK_FALLBACK = 'https://www.nhk.or.jp/rss/news/cat0.xml'
+
+test('配信元の設定を渡さなければ、plugin.json の既定（newsFeeds.default）の配信元を取りにいく。news.ts の既定と同じであること', async ($, on) => {
   const tb = await boot($, on, 18)
-  const ui = await $.ui.mount(BAND)
 
-  expect((await ui.find({ key: TOGGLE }))?.props['label']).toBe('天気・運行を隠す')
-  expect(tb.fetched.length, 'ボードのぶんは取りにいく').toBeGreaterThan(0)
-  expect(tb.fetched.filter(url => url.includes('finance')), '株価のページは見ない').toEqual([])
-
-  await ui.unmount()
+  for (const feed of parseFeedSpecs(DEFAULT_NEWS_FEEDS)) {
+    expect(tb.fetched, feed.label).toContain(feed.url)
+  }
 })
+
+test('既定の NHK（Google ニュースの検索 URL）が取れなくても、絞り込む前の NHK 主要ニュースには差し替えない', async ($, on) => {
+  const tb = await boot($, on, 18)
+
+  expect(tb.fetched.some(url => url.includes('news.google.com')), '既定の NHK は取りにいく').toBe(true)
+  expect(tb.fetched, '救済の配信元は見ない').not.toContain(NHK_FALLBACK)
+})
+
+test(
+  'NHK のサイトそのものの配信元が取れないときは、昔の配信元を試す',
+  { options: { newsFeeds: 'NHK|https://news.web.nhk/n-data/conf/na/rss/cat0.xml' } },
+  async ($, on) => {
+    const tb = await boot($, on, 18)
+
+    expect(tb.fetched).toContain(NHK_FALLBACK)
+  },
+)
 
 test('時間帯の中で隠したまま新しいセッションを開くと、隠したまま始まる（取りにもいかない）', async ($, on) => {
   const tb = await boot($, on, 20, { stored: { 'board.override': { value: 'hide', period: at(17) } } })

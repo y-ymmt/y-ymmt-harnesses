@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "tokyo-board",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "待機中の帯に東京の天気・運行情報・警報・ニュースを出す",
   "author": {
     "name": "y-ymmt"
@@ -106,7 +106,7 @@
     "news": {
       "type": "boolean",
       "title": "ニュースを流す",
-      "description": "NHK の見出しを掲示板の下の行に流す",
+      "description": "配信元（既定は ITmedia と NHK）の見出しを掲示板の下の行に流す",
       "default": true
     },
     "newsFeed": {
@@ -118,7 +118,7 @@
     "newsCount": {
       "type": "number",
       "title": "配信元 1 つあたりの見出しの本数",
-      "description": "配信元の数だけ掛かる（既定 4 配信元 × 3 本）",
+      "description": "配信元の数だけ掛かる（既定 3 配信元 × 3 本）",
       "default": 3,
       "min": 1,
       "max": 15

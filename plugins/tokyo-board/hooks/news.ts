@@ -10,16 +10,27 @@
 
 import { charWidth, displayWidth } from './board'
 
-/** NHK 主要ニュースの配信元。 */
-export const NEWS_URL = 'https://news.web.nhk/n-data/conf/na/rss/cat0.xml'
-
-/** 昔の NHK の配信元。`news.web.nhk` が取れないときに使う。 */
+/** 昔の NHK の配信元。NHK のサイトそのもの（`news.web.nhk`）の配信元が取れないときに使う。 */
 export const NEWS_URL_FALLBACK = 'https://www.nhk.or.jp/rss/news/cat0.xml'
+
+/**
+ * その URL が NHK のサイトそのもの（ホストが `news.web.nhk`）か。
+ * Google ニュースの検索 URL のように、クエリに `site:news.web.nhk` を含むだけのものは偽。
+ *
+ * @param url 配信元の URL
+ */
+export function isNhkSite(url: string): boolean {
+  try {
+    return new URL(url).hostname === 'news.web.nhk'
+  } catch {
+    return false
+  }
+}
 
 /** 見出しの区切り。 */
 export const NEWS_SEPARATOR = '　◆　'
 
-/** 既定の配信元（ITmedia AI＋ / ITmedia NEWS / NHK 主要 / NHK 科学・文化）。 */
+/** 既定の配信元（ITmedia AI＋ / ITmedia NEWS / NHK の IT 系）。plugin.json の `newsFeeds.default` と同じ（tests/news.test.ts で確かめる）。 */
 export const DEFAULT_NEWS_FEEDS = [
   'AI+|https://rss.itmedia.co.jp/rss/2.0/aiplus.xml',
   'IT|https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml',
@@ -128,13 +139,6 @@ export function withoutSourceSuffix(title: string): string {
   const head = cut.split(/\s+\|\s+/)[0] ?? cut
 
   return head.trim() === '' ? title : head.trim()
-}
-
-/** 昔の名前。RSS でも Atom でも見出しだけ欲しいとき。 */
-export function parseNews(xml: string, count: number): string[] {
-  return parseFeed(xml)
-    .items.slice(0, Math.max(1, Math.trunc(count)))
-    .map(item => item.title)
 }
 
 /**
@@ -343,9 +347,4 @@ export function marqueeRunsOf(line: NewsLine, window: number, step: number): Mar
   }
 
   return runs
-}
-
-/** 昔の名前。見出しを `　◆　` でつなぐ。 */
-export function newsTextOf(titles: readonly string[]): string {
-  return titles.join(NEWS_SEPARATOR)
 }
