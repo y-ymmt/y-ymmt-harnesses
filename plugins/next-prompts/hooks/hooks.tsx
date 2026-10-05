@@ -39,6 +39,9 @@ const SAVED_LIMIT = 30
 /** 保存した候補 1 つぶん。`fingerprint` は会話のいまの位置（`fingerprintOf`）。 */
 type Saved = { fingerprint: string; generated: string[]; lastPrompt: string; at: number }
 
+/** 考える深さ。候補づくりは軽い仕事なので浅くして速くする（対応しないモデルでは無視される）。 */
+const EFFORT = 'low'
+
 /** 候補づくりにかけてよい時間。過ぎたら諦めて何も出さない。 */
 const TIMEOUT_MS = 20_000
 
@@ -166,15 +169,27 @@ async function generate(
       return
     }
 
+    const startedAt = await $.clock.now()
     const reply = await $.model.complete(
       {
         model: settings.model,
+        effort: EFFORT,
         system: systemOf(settings.count),
         prompt: promptOf(transcript, last, settings.count),
         maxTokens: MAX_TOKENS,
         timeoutMs: TIMEOUT_MS,
       },
       { signal },
+    )
+
+    // かかった時間と量をデバッグログへ（`claude --debug-file` で見られる。トランスクリプトには出さない）。
+    const elapsed = (await $.clock.now()) - startedAt
+    const { input_tokens: input, output_tokens: output } = reply.usage
+
+    $.ui.log(
+      `${settings.model} effort=${EFFORT} ${elapsed}ms in=${input} out=${output} ` +
+        (reply.isAnswered ? `answered ${reply.text.length}chars` : `no-text ${reply.reason}`),
+      { to: 'debug' },
     )
 
     if (token !== generation()) return

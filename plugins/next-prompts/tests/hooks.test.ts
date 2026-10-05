@@ -43,7 +43,7 @@ const CONVERSATION: Message[] = [
 /** 偽のエンジン。 */
 function boot(options: Record<string, unknown> = {}, store: Map<string, unknown> = new Map()) {
   const hooks: { event: string; matcher: Record<string, unknown> | null; hook: Hook }[] = []
-  const calls = { complete: [] as Record<string, unknown>[], fills: [] as Record<string, unknown>[], toasts: [] as string[], invalidations: 0 }
+  const calls = { complete: [] as Record<string, unknown>[], fills: [] as Record<string, unknown>[], toasts: [] as string[], logs: [] as { text: string; to?: string }[], invalidations: 0 }
   const env = {
     surfaces: ['terminal'] as string[],
     messages: CONVERSATION as unknown,
@@ -78,6 +78,7 @@ function boot(options: Record<string, unknown> = {}, store: Map<string, unknown>
       resolve: () => ({ Box: 'Box', Text: 'Text', Button: 'Button' }),
       invalidate: () => void (calls.invalidations += 1),
       toast: (text: string) => void calls.toasts.push(text),
+      log: (text: string, options?: { to?: string }) => void calls.logs.push({ text, to: options?.to }),
     },
   }
   const on = (event: string, a: unknown, b?: unknown): void => {
@@ -129,6 +130,9 @@ describe('候補づくり', () => {
 
     expect(tb.calls.complete.length).toBe(1)
     expect(tb.calls.complete[0]?.['model']).toBe('haiku')
+    expect(tb.calls.complete[0]?.['effort'], '軽い仕事なので浅く考えさせる').toBe('low')
+    expect(tb.calls.logs.map(l => l.to), 'かかった時間はデバッグログだけに出す').toEqual(['debug'])
+    expect(tb.calls.logs[0]?.text).toMatch(/^haiku effort=low \d+ms in=.* out=.* answered/)
     expect(String(tb.calls.complete[0]?.['prompt'])).toContain('example-app のログイン画面を直して')
 
     const drawn = await tb.band()
