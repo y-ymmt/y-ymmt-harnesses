@@ -1,0 +1,351 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "reply-prism",
+  "version": "0.1.0",
+  "description": "返事の表・コード・図・ツール行を色つきで描き、パスのリンク・表のコピー形式と並べ替え・長いブロックの折りたたみ・危ない語の強調を足した Mod（prismantis の改変版）",
+  "author": {
+    "name": "y-ymmt"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mod",
+    "theme",
+    "markdown",
+    "tables",
+    "colors",
+    "terminal"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "有効",
+      "description": "この Mod で返事を描く。オフにすると Claude Code 標準の描画に戻る",
+      "default": true
+    },
+    "theme": {
+      "type": "string",
+      "title": "テーマ",
+      "description": "もとにする配色（MIT ライセンスの人気テーマから）。明るい背景向け: catppuccin-latte, gruvbox-light, rose-pine-dawn, github-light, solarized-light。mono は色を使わず太字と薄字だけ",
+      "default": "catppuccin-mocha",
+      "options": [
+        "catppuccin-mocha",
+        "catppuccin-latte",
+        "dracula",
+        "nord",
+        "tokyo-night",
+        "gruvbox-dark",
+        "gruvbox-light",
+        "rose-pine",
+        "rose-pine-dawn",
+        "everforest",
+        "github-dark",
+        "github-light",
+        "one-dark",
+        "solarized-dark",
+        "solarized-light",
+        "mono"
+      ]
+    },
+    "headingStyle": {
+      "type": "string",
+      "title": "見出しの形",
+      "description": "端末は文字の大きさを変えられないので形で目立たせる: banner（H1 を枠で囲み H2 に太線）、bold、underline、uppercase（H1 を大文字）",
+      "default": "banner",
+      "options": [
+        "bold",
+        "underline",
+        "uppercase",
+        "banner"
+      ]
+    },
+    "tableStyle": {
+      "type": "string",
+      "title": "表の罫線",
+      "description": "rules: 見出しの下と行の間に線。grid: 見出しの線を太く、列の間を広く。minimal: 見出しの下だけ",
+      "default": "rules",
+      "options": [
+        "rules",
+        "grid",
+        "minimal"
+      ]
+    },
+    "tableCopyFormats": {
+      "type": "string",
+      "title": "表のコピー形式",
+      "description": "表の上に並べるコピーボタンの形式をカンマ区切りで: markdown（Markdown の表）、tsv（Excel・スプレッドシートに貼る用）、slack（桁を揃えたコードブロック）。空なら 3 つとも",
+      "default": "markdown,tsv,slack"
+    },
+    "tableSort": {
+      "type": "boolean",
+      "title": "表を列で並べ替える",
+      "description": "表の見出しに ⇅ を置き、押すとその列で昇順 → 降順 → 元の順に切り替える。数・日時・バージョンはそれらしく比べる",
+      "default": true
+    },
+    "foldLines": {
+      "type": "number",
+      "title": "畳む行数",
+      "description": "これより行数の多い表・コードブロックは先頭だけ見せ、［あと N 行を表示］で開く。0 で畳まない",
+      "default": 40,
+      "min": 0,
+      "max": 100000
+    },
+    "foldPreviewLines": {
+      "type": "number",
+      "title": "畳んだときに見せる行数",
+      "description": "畳んだ表・コードブロックで先頭に見せる行数",
+      "default": 15,
+      "min": 1,
+      "max": 100000
+    },
+    "rtl": {
+      "type": "string",
+      "title": "右から左に書く言語",
+      "description": "ヘブライ語・アラビア語を右寄せ・右から左で描く。auto は端末を見分ける。端末名で固定、off で無効",
+      "default": "auto",
+      "options": [
+        "auto",
+        "warp",
+        "kitty",
+        "apple-terminal",
+        "iterm",
+        "ghostty",
+        "wezterm",
+        "vscode",
+        "alacritty",
+        "windows-terminal",
+        "gnome",
+        "konsole",
+        "off"
+      ]
+    },
+    "highlightNumbers": {
+      "type": "boolean",
+      "title": "数に色をつける",
+      "description": "文中と表の版番号・ID・件数・時間に色をつける",
+      "default": true
+    },
+    "highlightPaths": {
+      "type": "boolean",
+      "title": "パスに色をつける",
+      "description": "~/src/app.ts や src/app/Foo.java:12 のようなファイルパスに色をつける（オフにするとリンクにもならない）",
+      "default": true
+    },
+    "editor": {
+      "type": "string",
+      "title": "パスを開くエディタ",
+      "description": "返事やツール行のファイルパス（path:行 も）をこのエディタで開く。端末ではツール行のパスと、返事の最後の「開く:」の行のボタンを押すと開く（Orca などの全画面表示でもクリックで開ける）。文中・表のパスは cmd+クリックで開くリンクにもする。file はエディタではなく OS の既定のアプリ。off でボタンにもリンクにもしない",
+      "default": "vscode",
+      "options": [
+        "vscode",
+        "vscode-insiders",
+        "cursor",
+        "windsurf",
+        "zed",
+        "idea",
+        "file",
+        "off"
+      ]
+    },
+    "editorUrlTemplate": {
+      "type": "string",
+      "title": "パスを開く URL のひな形",
+      "description": "空でなければ「パスを開くエディタ」より優先。{path}（絶対パス、URL 用にエスケープ済み）・{line}・{col} を埋める。例: vscode://file{path}:{line}:{col}",
+      "default": ""
+    },
+    "openRow": {
+      "type": "boolean",
+      "title": "返事の最後に「開く」の行",
+      "description": "返事の文中・表・インラインコードに出たファイルパスを、返事の最後に「開く:」に続けて押すと開くボタンで並べる（同じパス＋行は 1 つに）。全画面表示の端末ではリンクのクリックで開かないため。端末でだけ出す",
+      "default": true
+    },
+    "openRowMax": {
+      "type": "number",
+      "title": "「開く」の行に並べる数",
+      "description": "「開く:」の行に並べるボタンの数の上限。超えた分は「ほか N 件」と出す",
+      "default": 8,
+      "min": 1,
+      "max": 100
+    },
+    "accentColor": {
+      "type": "string",
+      "title": "アクセントの色",
+      "description": "アクセントの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "headingColor": {
+      "type": "string",
+      "title": "見出しの色",
+      "description": "見出しの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "tableHeaderColor": {
+      "type": "string",
+      "title": "表の見出しの色",
+      "description": "表の見出しの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "tableRuleColor": {
+      "type": "string",
+      "title": "表の罫線の色",
+      "description": "表の罫線の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "numberColor": {
+      "type": "string",
+      "title": "数の色",
+      "description": "数の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "pathColor": {
+      "type": "string",
+      "title": "パスの色",
+      "description": "パスの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "linkColor": {
+      "type": "string",
+      "title": "リンクの色",
+      "description": "リンクの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "inlineCodeColor": {
+      "type": "string",
+      "title": "インラインコードの色",
+      "description": "インラインコードの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "codeCommandColor": {
+      "type": "string",
+      "title": "コードのコマンドの色",
+      "description": "コードのコマンドの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "codeFlagColor": {
+      "type": "string",
+      "title": "コードのフラグの色",
+      "description": "コードのフラグの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "codeStringColor": {
+      "type": "string",
+      "title": "コードの文字列の色",
+      "description": "コードの文字列の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "strongColor": {
+      "type": "string",
+      "title": "太字の色",
+      "description": "太字の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "quoteColor": {
+      "type": "string",
+      "title": "引用の色",
+      "description": "引用の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "mermaidAscii": {
+      "type": "boolean",
+      "title": "Mermaid を ASCII だけで",
+      "description": "図を罫線文字ではなく + - | > で描く（罫線文字の無いフォント向け）",
+      "default": false
+    },
+    "diagramColor": {
+      "type": "string",
+      "title": "図の線の色",
+      "description": "図の線の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "diagramTextColor": {
+      "type": "string",
+      "title": "図の文字の色",
+      "description": "図の文字の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "toolRows": {
+      "type": "boolean",
+      "title": "ツール行を 1 行に",
+      "description": "ツールの呼び出しを 1 行で描く: Ran gh pr view 12、Read ~/src/app.ts。結果は今までどおり下に出る",
+      "default": true
+    },
+    "emphasisColor": {
+      "type": "string",
+      "title": "斜体の色",
+      "description": "斜体の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "codeTextColor": {
+      "type": "string",
+      "title": "コードの文字の色",
+      "description": "コードの文字の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "codeCommentColor": {
+      "type": "string",
+      "title": "コードのコメントの色",
+      "description": "コードのコメントの色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "ruleColor": {
+      "type": "string",
+      "title": "区切り線の色",
+      "description": "区切り線の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "bulletColor": {
+      "type": "string",
+      "title": "箇条書きの記号の色",
+      "description": "箇条書きの記号の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空ならテーマの色",
+      "default": ""
+    },
+    "mermaid": {
+      "type": "boolean",
+      "title": "Mermaid の図",
+      "description": "```mermaid のブロックを端末の幅に合わせた色つきの図にする。オフなら書かれたまま",
+      "default": true
+    },
+    "copyButtons": {
+      "type": "boolean",
+      "title": "コピーボタン",
+      "description": "コード・表・図・リスト・引用にコピーボタンを置く。ctrl+x tab で移って Enter、または端末がクリックを通すならクリック",
+      "default": true
+    },
+    "diagramHints": {
+      "type": "boolean",
+      "title": "図を勧める一言",
+      "description": "打ったプロンプトに、モデルだけが読む短い注記（表・コード・mermaid の図が描けること）を添える。1 回あたり約 150 トークン。mermaid がオフなら付けない",
+      "default": true
+    },
+    "dangerHighlight": {
+      "type": "boolean",
+      "title": "危ない語を目立たせる",
+      "description": "本番・production・prod・DELETE・UPDATE・DROP・TRUNCATE・--force・rm -rf などを、返事・コード・コマンド行で赤背景にする",
+      "default": true
+    },
+    "dangerWords": {
+      "type": "string",
+      "title": "危ない語（置き換え）",
+      "description": "空でなければ既定の語の一覧をこれに置き換える。カンマか読点で区切る（rm -rf のように空白を含む語も書ける）。大文字を含む語は大文字小文字を区別（シェルと SQL の中では区別しない）",
+      "default": ""
+    },
+    "dangerWordsExtra": {
+      "type": "string",
+      "title": "危ない語（追加）",
+      "description": "既定（または置き換えた一覧）に足す語。カンマか読点で区切る。例: 商用,stg-db,--no-verify",
+      "default": ""
+    },
+    "dangerColor": {
+      "type": "string",
+      "title": "危ない語の文字の色",
+      "description": "危ない語の文字の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空なら白（mono テーマでは反転）",
+      "default": ""
+    },
+    "dangerBackgroundColor": {
+      "type": "string",
+      "title": "危ない語の背景の色",
+      "description": "危ない語の背景の色。16 進（#a6e3a1）・rgb(166,227,161)・ansi256(114)・色名（green）。空なら赤（mono テーマでは反転）",
+      "default": ""
+    }
+  }
+}

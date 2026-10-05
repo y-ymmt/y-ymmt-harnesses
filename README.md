@@ -8,6 +8,7 @@ Claude Code 用のプラグイン（marketplace）。
 | `tokyo-board` | 17:00〜24:00 の間、プロンプト上の帯に東京の天気・運行情報（電光掲示板風）・警報・IT/AI ニュースを出す |
 | `touch-tree` | このセッションで Claude が読んだ・編集したファイルを、リポジトリのツリーに沿ってペインに出す（`/touch-tree`） |
 | `next-prompts` | ターンが終わるたびに、次に打ちそうな依頼の候補（haiku が会話から作る）をプロンプトの上にボタンで並べる。押すとその文が入力欄に入る（送信はしない） |
+| `reply-prism` | 返事の表・コード・Mermaid の図・ツール行を色つきで描き直す（[prismantis](https://github.com/NahumLitvin/prismantis) の改変版）。パスをクリックでエディタで開く、表を Markdown・TSV・Slack 形式でコピー・列で並べ替え、長い表とコードを畳む、`本番` `DELETE` などを赤背景で目立たせる（`/reply-prism`） |
 
 いずれも function hooks（Mods）で作っている。Claude Code 2.1.287 以降は追加の設定なしで動く。
 
@@ -19,6 +20,7 @@ claude plugin install turn-counter@y-ymmt-harnesses
 claude plugin install tokyo-board@y-ymmt-harnesses
 claude plugin install touch-tree@y-ymmt-harnesses
 claude plugin install next-prompts@y-ymmt-harnesses
+claude plugin install reply-prism@y-ymmt-harnesses
 ```
 
 各プラグインの設定と仕組みは `plugins/<name>/README.md` を参照。

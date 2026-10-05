@@ -1,0 +1,310 @@
+# reply-prism
+
+Claude Code の返事（表・コード・Mermaid の図・ツール行・コマンドの出力）を色つきで描き直す
+Claude Code プラグイン（function hooks）。
+
+**[prismantis](https://github.com/NahumLitvin/prismantis)（作者 [Nahum Litvin](https://github.com/NahumLitvin)、MIT ライセンス）を元にした改変版**で、
+コミット `b13de6c9ec39e01946943f67b07e5fae4aefd939`（2026-10-04、prismantis 0.6.0）を取り込み、次の 5 つを足している。
+
+1. ファイルパスをエディタで開く（押して開くボタンと、cmd+クリックで開くリンク）
+2. 表のコピー形式を選べる（Markdown・TSV・Slack）
+3. 危ない語（`本番` `DELETE` `rm -rf` など）を赤背景で目立たせる
+4. 長い表・コードブロックを畳む
+5. 表を列で並べ替える
+
+ボタン・トースト・コマンドの返事・`/config` の項目名は日本語にした。ツール行の動詞（`Ran` `Read` `Edited`）と
+ターンの終わりの行は、Claude Code 自身の表示に合わせて英語のまま。
+
+```
+⏺ 原因は src/main/java/com/example/app/AppService.java:42 です。      ← パスはリンク（cmd+クリックで開く）
+  本番 の users に DELETE を流す前に確認してください。               ← 本番・DELETE が赤背景
+
+                                  [ ⧉ Markdown ] [ ⧉ TSV ] [ ⧉ Slack ]
+  ジョブ ⇅   所要 ▼   最終実行 ⇅          版 ⇅
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  job-24    899ms   2026-09-25 04:48   v1.0.24
+  ─────────────────────────────────────────────
+  …（先頭 15 行）
+  [ あと 33 行を表示 ]
+
+  開く:  AppService.java:42  Foo.java                                  ← 押すとエディタで開く
+```
+
+（上は形の説明。実際の色と並びは端末で `/reply-prism demo` を出して確かめる。）
+
+## 入れ方
+
+```sh
+claude plugin marketplace add y-ymmt/y-ymmt-harnesses
+claude plugin install reply-prism@y-ymmt-harnesses
+```
+
+Claude Code 2.1.287 以降。入れた後、開いているセッションは `/reload-plugins` か開き直しが要る。
+
+### 本家 prismantis と同時に有効にしない
+
+どちらも同じ描画（`AssistantMessage` `CommandOutput` `ToolUse` `ToolGroup` `TurnDuration`）を自分で描き、下の段を呼ばない。
+両方を有効にすると、**読み込み順で外側になった片方だけ**が描き、もう片方は何もしない（二重には描かれないが、
+どちらが出るかは決まっていない）。また両方がプロンプトに図の注記（`diagramHints`）を添えるので、注記が 2 つ付く。
+reply-prism を使うときは prismantis を `/plugin` で無効にする。
+
+名前は衝突しないようにしてある: プラグイン名 `reply-prism`、コマンド `/reply-prism`、設定は `pluginConfigs["reply-prism@y-ymmt-harnesses"]`、
+`$.state` のキーは `reply-prism.view`。
+
+## 足した機能
+
+### 1. ファイルパスをエディタで開く
+
+返事・表のセル・`インラインコード`・Read/Edit/Write のツール行に出るファイルパスを、押すとエディタがその行で開くようにする。
+開き方は 2 つある。
+
+- **押して開くボタン**: Read/Edit/Write のツール行のパスはボタンにする。返事の中にパスがあれば、返事の最後に
+  `開く:`（薄字）に続けてパスごとのボタン（ファイル名、行番号があれば `Foo.java:42`）を 1 行に並べる（幅が足りなければ折り返す）。
+  同じパス＋行番号は 1 つにまとめ、出てきた順に並べる。上限（`openRowMax`、既定 8）を超えた分は `ほか N 件` と薄字で出す。
+  押すと、エディタの URL（下の表）を macOS は `open`、それ以外は `xdg-open` に渡して開く。どちらも無ければトーストで知らせる
+- **リンク**: 文中・表のセル・インラインコードのパスは端末のリンク（OSC 8）にもする。
+  端末のリンクの開き方（iTerm2・Ghostty・WezTerm・VS Code の端末などで cmd+クリック）で開く
+
+> [!NOTE]
+> Orca など、Claude Code を全画面表示（fullscreen）で使う端末では、リンクをクリックしても cmd+クリックしても開かない
+> （全画面表示でクリックを受け取れるのはボタンなどに限られるため）。そこでは返事の最後の `開く:` の行かツール行のボタンを押す。
+> ボタンの文字には色を付けられないので、ツール行のパスはパスの色ではなく普通の文字の色で出る。
+
+- **拾う形**: `/abs/path/Foo.java`、`~/.zshrc`、`./a.ts`、`../lib/b.ts`、`src/main/java/com/example/app/Foo.java`。
+  行番号は `:12`、`:12:5`、`:12-20`（始まりの行で開く）、`#L12` を読む
+- **ファイルらしいものだけ**: 最後の要素に拡張子（`.zshrc` のようなドットファイルも含む）があるか、`Makefile` `Dockerfile`
+  などの決まった名前のときだけリンクにする。`and/or`、`2026/10/05`、`/api/v1/users`、`src/main`（ディレクトリ）はリンクにしない。
+  ツール行の `file_path` はファイルと分かっているので拡張子が無くてもボタンにする
+- **相対パス**は、セッションの作業ディレクトリ（`$.session.cwd()`、セッション開始とプロンプト送信のたびに取り直す）から絶対にする。
+  `~` はホーム
+- **端末だけ**: デスクトップアプリなどは `https:` 以外のリンクを描かないので、そこではボタンもリンクも出さず色だけ（本家と同じ）
+- 英数字と `._-@+` だけのパスを拾う。日本語や空白を含むパスは拾わない（日本語の文と切れ目が付けられないため）
+
+| 設定 | 値 | 既定 |
+|---|---|---|
+| `editor` | `vscode` `vscode-insiders` `cursor` `windsurf` `zed` `idea` `file` `off` | `vscode` |
+| `editorUrlTemplate` | URL のひな形。`{path}`（絶対パス、要素ごとに URL エスケープ済み）`{line}` `{col}`（無ければ 1）。空でなければ `editor` より優先 | 空 |
+| `openRow` | `false` で返事の最後の `開く:` の行を出さない（ツール行のボタンとリンクは残る） | `true` |
+| `openRowMax` | `開く:` の行に並べるボタンの数の上限（1〜100） | `8` |
+
+作る URL（`/w/src/a.ts` の 12 行目の場合）:
+
+| `editor` | URL |
+|---|---|
+| `vscode` `vscode-insiders` `cursor` `windsurf` | `vscode://file/w/src/a.ts:12`（スキーム名だけ違う） |
+| `zed` | `zed://file/w/src/a.ts:12`（Zed の URL の形は未確認） |
+| `idea` | `idea://open?file=%2Fw%2Fsrc%2Fa.ts&line=12`（IntelliJ 系。macOS で登録されるスキーム） |
+| `file` | `file:///w/src/a.ts`（行番号なし。OS の既定のアプリで開く） |
+| `off` | ボタンにもリンクにもしない（`editorUrlTemplate` が空のとき） |
+
+> [!WARNING]
+> OSC 8 のリンクを描けない端末では、Claude Code がリンクの後ろに URL を薄字で書き足す（エンジンの仕様）。
+> そういう端末（Apple の「ターミナル」など）でうるさいときは `editor` を `off` にする。
+
+### 2. 表のコピー形式
+
+表の上のコピーボタンを、形式ごとに並べた（`[ ⧉ Markdown ] [ ⧉ TSV ] [ ⧉ Slack ]`）。押すたびに切り替える形より
+1 回で済むので、並べる形にした。並べ替えていればその順で、畳んでいても全行をコピーする。
+
+| 形式 | 中身 | 貼り先 |
+|---|---|---|
+| Markdown | 表の Markdown。並べ替えていなければ返事に書かれたとおり、並べ替えていれば作り直す | GitHub・Markdown のエディタ |
+| TSV | タブ区切り。`**太字**` などの記法は外し、リンクは `文字 (URL)`。`"` を含むセルは `"` で囲む | Excel・Google スプレッドシート（1 セルずつ入る） |
+| Slack | 列を空白で揃えて ```` ``` ```` で囲んだコードブロック（全角は 2 桁として揃える） | Slack（Markdown の表を描かないため） |
+
+| 設定 | 値 | 既定 |
+|---|---|---|
+| `tableCopyFormats` | 並べるボタンをカンマ区切りで（`markdown` `tsv` `slack`）。空なら 3 つとも | `markdown,tsv,slack` |
+| `copyButtons` | `false` でコピーボタンを全部出さない（本家の設定） | `true` |
+
+**Notion に貼るとき（推測・未確認）**: Notion は貼り付けた Markdown を変換するので、**Markdown** を貼ると表になる
+可能性が高いと考えている。TSV は Notion では 1 行ずつの文字として入る可能性がある。どちらも実際の貼り付けでは
+確かめていない（このプラグインのテストでは確かめられない）ので、使ってみて README を直す。
+
+Slack のコードブロックのフォントでは全角文字がちょうど 2 桁にならないことがあり、日本語の多い表は少しずれる。
+
+### 3. 危ない語を目立たせる
+
+既定の語: `本番` `production` `prod` `DELETE` `UPDATE` `DROP` `TRUNCATE` `ALTER` `--force` `--hard` `rm -rf` `rm -fr`。
+返事の文・表・インラインコード・コードブロック・ツール行のコマンド（`Ran …`）・まとめた行の `last:` を、
+白文字＋赤背景＋太字にする（`mono` テーマでは反転＋太字）。
+
+- **語の境目**: 英数字で始まる・終わる語は、前後が英数字でないときだけ当たる。`prod` は `prod-db` に当たり、`product` には当たらない。
+  `本番` のような日本語は文字列のどこにでも当たる（`本番環境` も）
+- **大文字小文字**: 大文字を含む語（`DELETE`）は文中では大文字だけに当たる（英文の "delete the file" を拾わない）。
+  小文字だけの語（`production`）は区別しない。**シェル・SQL のコードブロックとツール行のコマンドの中では区別しない**（`delete from users` も当たる）
+- 語の中の空白は 1 つ以上の空白に当たる（`rm  -rf` も当たる）
+
+| 設定 | 値 | 既定 |
+|---|---|---|
+| `dangerHighlight` | `false` で目立たせない | `true` |
+| `dangerWords` | 既定の一覧を**置き換える**語。カンマか読点（、）で区切る | 空（既定の一覧） |
+| `dangerWordsExtra` | 一覧に**足す**語。例 `商用,stg-db,--no-verify` | 空 |
+| `dangerColor` / `dangerBackgroundColor` | 文字と背景の色（色の書き方は下の表） | 白 / `#d20f39` |
+
+### 4. 長い表・コードブロックを畳む
+
+`foldLines` 行より長い表（データ行の数）・コードブロックは、先頭 `foldPreviewLines` 行だけ見せ、下に
+`[ あと 35 行を表示 ]` を置く。開くと下に `[ 畳む ]`、上（コピーボタンの横）にも `[ 畳む ]` が出る。
+コードブロックの見出しには全体の行数（`── ts · 50 行`）を出す。コピーは畳んでいても全行。
+
+開閉の状態はメッセージごと（`ui.render` の requestId）・ブロックごと（位置と中身のハッシュ）に `$.state` へ置く。
+返事が流れてくる途中でブロックの中身が変わると、状態は畳んだ状態に戻る。セッションをまたいでは残らない。
+
+| 設定 | 値 | 既定 |
+|---|---|---|
+| `foldLines` | この行数を超えたら畳む。`0` で畳まない | `40` |
+| `foldPreviewLines` | 畳んだときに見せる行数 | `15` |
+
+Mermaid を図にしたブロックは畳まない。
+
+### 5. 表を列で並べ替える
+
+データ行が 2 行以上の表は、見出しの右に `⇅` を置く。押すとその列で `▲` 昇順 → `▼` 降順 → 元の順と切り替わる。
+別の列を押すとその列の昇順から。並べ替えてから畳むので、降順にすると上位だけが見える。
+
+列の値の種類は、空でない値が**すべて**同じ形のときにその比べ方にする（混ざっていれば文字として比べる）。
+
+| 種類 | 例 | 比べ方 |
+|---|---|---|
+| 数 | `1,234` `-5.2` `12%` `¥1,200` `42件` `250ms` `1m 20s` `3.5GB` `900MB` | 数として。時間（ms・s・m・h・d・秒・分・時間・日）と容量（K・M・G・T、KB・MiB など）は単位を揃える |
+| バージョン | `v1.2.10` `2.1.289` `1.0.0-rc.1` | 点で区切った数の並び。`-rc.1` などは付いていないものより前（点が 1 つの `1.2` は数として比べる） |
+| 日時 | `2026-10-05` `2026/10/05 12:34:56` `2026-10-05T03:04:05+09:00` `2026年10月5日` `10/05 12:34` `12:34:56` | 時刻として（時差も見る） |
+| 文字 | それ以外 | 日本語の照合順。数字は数として（`item2` < `item10`）、大文字小文字は区別しない |
+
+空・`-` `—` `N/A` `null` `なし` `不明` などは、昇順でも降順でも最後に回す。同じ値は元の順を保つ。
+
+| 設定 | 値 | 既定 |
+|---|---|---|
+| `tableSort` | `false` で並べ替えのボタンを出さない | `true` |
+
+## 本家から引き継いだ機能
+
+本家の README（英語）に詳しい。ボタンの文言を日本語にしたほかは、下に書いた Mermaid の全角対応だけを直した。
+
+- 15 のテーマ（`/reply-prism theme <name>`）と `mono`、20 の色の項目
+- 表（見出しの色・罫線・寄せ・数の色・幅合わせ）、見出しの 4 つの形、入れ子のリスト、引用、GitHub の囲み（`> [!NOTE]` など）
+- コード（Prism で 24 言語の色つけ、シェルの色つけ）
+- Mermaid の図（フローチャート・シーケンス・状態・クラス・ER、`xychart-beta` の棒・折れ線グラフ）
+  - **reply-prism で直したところ**: 本家（の同梱の beautiful-mermaid）は全角の文字も 1 マスと数えるので、
+    日本語のラベルだと箱の右端や線がずれる。描く前に全角の文字を 1 マスの私用領域の文字 2 つに置き換えて幅を取らせ、
+    描いたあとで元に戻している（`hooks/mermaid.tsx`）
+- 表と図が続くと横に並べる
+- コピーボタン（`[ ⧉ コピー ]`、図は `⧉ ソース` と `⧉ 図`）。ctrl+x tab でボタンに移って Enter、
+  またはクリックを通す端末（全画面表示）ならクリック
+- ツール行を 1 行に（`Ran gh pr view 12`、`Read ~/src/app.ts`、まとめた行 `Ran 3 commands, read 2 files`）
+- ターンの終わりの行の時間に色
+- スラッシュコマンドの出力も同じ描き方
+- 図の注記（`diagramHints`）: 打ったプロンプトに、モデルだけが読む短い英語の注記を添える（1 回約 150 トークン）
+- ヘブライ語・アラビア語の右から左の描画（`/reply-prism demo-rtl`）
+
+## コマンド
+
+- `/reply-prism` — 使い方とテーマの一覧
+- `/reply-prism theme <name>` — テーマを切り替える
+- `/reply-prism demo` — すべての要素と、足した 5 つの機能の見本
+- `/reply-prism demo-rtl` — 右から左の見本
+
+## 設定
+
+`/config` の **reply-prism** の行で変えるか（`/plugin configure reply-prism@y-ymmt-harnesses` でも）、`~/.claude/settings.json` に書く。
+書かなかった項目は既定の値になる。
+
+```json
+{
+  "pluginConfigs": {
+    "reply-prism@y-ymmt-harnesses": {
+      "options": {
+        "theme": "tokyo-night",
+        "editor": "cursor",
+        "tableCopyFormats": "tsv,slack",
+        "dangerWordsExtra": "商用,stg-db",
+        "foldLines": 60
+      }
+    }
+  }
+}
+```
+
+| 設定 | 値 | 既定 |
+|---|---|---|
+| `enabled` | `true` `false` | `true` |
+| `theme` | `catppuccin-mocha` `catppuccin-latte` `dracula` `nord` `tokyo-night` `gruvbox-dark` `gruvbox-light` `rose-pine` `rose-pine-dawn` `everforest` `github-dark` `github-light` `one-dark` `solarized-dark` `solarized-light` `mono` | `catppuccin-mocha` |
+| `tableStyle` | `rules` `grid` `minimal` | `rules` |
+| `headingStyle` | `banner` `bold` `underline` `uppercase` | `banner` |
+| `highlightNumbers` | `true` `false` | `true` |
+| `highlightPaths` | `true` `false`（`false` にすると文中のパスはリンクにも `開く:` の行にも出ない。インラインコードのパスとツール行は残る） | `true` |
+| `toolRows` | `true` `false` | `true` |
+| `copyButtons` | `true` `false` | `true` |
+| `diagramHints` | `true` `false` | `true` |
+| `rtl` | `auto`、端末名（`warp` `kitty` `apple-terminal` `iterm` `ghostty` `wezterm` `vscode` `alacritty` `windows-terminal` `gnome` `konsole`）、`off` | `auto` |
+| `mermaid` | `true` `false` | `true` |
+| `mermaidAscii` | `true` `false` | `false` |
+| `<token>Color` | 色（下の書き方）。項目は本家と同じ 20 個（`accentColor` `headingColor` `tableHeaderColor` `numberColor` `pathColor` など） | テーマ |
+| `editor` `editorUrlTemplate` `openRow` `openRowMax` | 上の「1.」 | `vscode` / 空 / `true` / `8` |
+| `tableCopyFormats` | 上の「2.」 | `markdown,tsv,slack` |
+| `dangerHighlight` `dangerWords` `dangerWordsExtra` `dangerColor` `dangerBackgroundColor` | 上の「3.」 | |
+| `foldLines` `foldPreviewLines` | 上の「4.」 | `40` / `15` |
+| `tableSort` | 上の「5.」 | `true` |
+
+色の書き方: 16 進（`#a6e3a1` `#fc0`）、`rgb(166,227,161)`、`ansi256(114)`、色名（`green` `cyanBright` など）。読めない値は無視する。
+
+## 限界
+
+- 本家と同じく、Markdown の解析は Claude が書くもの（見出し・リスト・表・コード・引用・強調・リンク）に絞っていて、CommonMark の全部ではない
+- Claude Code は 20000 ノードを超える描画を受け付けず、そのときは自前の描画に戻る。色をつけたコードはおよそ 500 行、
+  表はおよそ 1000 行が目安（本家の見積もり）。畳んでいる間は見せる行のぶんだけで済む
+- 並べ替え・開閉はボタンを押したときに `$.state` を書いて描き直す。ボタンは ctrl+x tab で移るか、クリックを通す端末でクリック
+
+## 仕組み
+
+```
+.claude-plugin/plugin.json   manifest（userConfig・types）                       改変（名前・作者・日本語の項目・足した設定）
+hooks/hooks.json             modules: ["./register.tsx"]                         本家のまま
+hooks/register.tsx           フックと `$` を使う処理すべて                        改変（下の「足したもの」）
+hooks/render.tsx             ブロック → Box/Text の木                             改変（危ない語・リンク・開くボタン・畳む・並べ替え・形式別コピー）
+hooks/markdown.ts            Markdown → ブロック                                  改変（相対パスの検出、表のセルの元の書き方）
+hooks/theme.ts               設定の読み込み                                        改変（足した設定）
+hooks/help.ts                /reply-prism の画面                                  改変（日本語化・足した機能の見本）
+hooks/presets.ts mermaid.tsx rtl.ts  テーマ・図・右から左                        本家のまま
+hooks/vendor/                Prism・beautiful-mermaid の同梱版                    本家のまま（scripts/ で作り直せる）
+hooks/paths.ts               パスの検出・絶対化・エディタの URL・開くボタンの key  独自
+hooks/danger.ts              危ない語の検出                                        独自
+hooks/table.ts               並べ替え（値の種類の判定）とコピー形式                独自
+hooks/width.ts               表示幅                                               本家 render.tsx から切り出し（中身は同じ）
+types/index.d.ts             $.state の契約（reply-prism.view）                   独自
+tests/reply-prism.test.tsx   足した 5 つの機能のテスト                            独自
+tests/*.test.tsx（他）       本家のテスト                                          改変（名前・ボタンの文言・ボタンの数・ツール行のパス）
+scripts/                     hooks/vendor を作り直すスクリプト                    本家のまま（package.json の名前と不要なスクリプトだけ変更）
+docs/demo.md                 本家の見本の返事                                      本家のまま
+LICENSE THIRD_PARTY_NOTICES.md  本家の MIT ライセンスと同梱物の表記                本家のまま（先頭に取り込み元を追記）
+```
+
+- 開閉・並べ替えの状態は `$.state` の `reply-prism.view`（メッセージごとの StateFamily）。描画中は書けないので、
+  ボタンの `onPress` から `update()` で書き、読んでいる描画だけが描き直される。表かコードがあるメッセージだけが読む
+- パスのリンクと開くボタンは、端末用の Style にだけリンクの関数と開く対象の関数を入れて切り替える（本家の Style をそのまま使い回す）
+- 開くボタンの key は `open:<行>:<桁>:<絶対パス>`（無い行・桁は 0）。押されたら `ui.press` のフックが key から開く対象を戻して
+  `$.process.run(['open', url])` を呼ぶ（状態を持たない）。他のボタンは今まで通り `onPress` で動く
+
+## テスト・確認
+
+```sh
+claude plugin test plugins/reply-prism                 # 本家のテスト 111 件と、足した機能のテスト
+claude plugin validate plugins/reply-prism --strict
+```
+
+テストは本家と同じ `claude-code/testing`（`claude plugin test`）で書いている（他のプラグインの `bun test` とは違う）。
+型の確認は、`claude --plugin-dir plugins/reply-prism` で一度読み込むと `.claude-plugin/types/` ができるので、その後 `tsc -p plugins/reply-prism`
+（`.claude-plugin/types/` はコミットしない）。
+
+`hooks/vendor/` を作り直すとき（本家の手順）:
+
+```sh
+npm --prefix plugins/reply-prism/scripts ci
+npm --prefix plugins/reply-prism/scripts run build:vendor
+```
+
+## ライセンス
+
+[MIT](LICENSE)。prismantis（Copyright (c) 2026 Nahum Litvin）の改変版で、改変した部分も MIT で配る。
+同梱しているライブラリとテーマの配色の出どころは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
