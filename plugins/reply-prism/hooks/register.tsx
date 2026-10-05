@@ -4,10 +4,12 @@
 // - 表・コードの開閉と表の並べ替え（状態は $.state の `reply-prism.view` に、メッセージごとに置く）
 // - 表のコピー形式（Markdown・TSV・Slack）と、ボタン・トーストの日本語化
 // - コマンド名を `/reply-prism` に（本家の `/prismantis` と衝突しないように）
+// - 注意箇所の注記（DANGER_HINT）: 返事を書く Claude に、特に注意すべき箇所を `==…==` で囲ませる
 import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import type { ReplyPrismView } from '../types'
+import { DANGER_HINT } from './mark'
 import { parse } from './markdown'
 import { boxArt, mermaidText } from './mermaid'
 import type { OpenTarget } from './paths'
@@ -203,8 +205,9 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     await applyRtl($, styles)
     await learnWhere($, where)
-    if (!style.diagramHints || (e.origin.kind !== 'composer' && e.origin.kind !== 'bridge')) return next(e)
-    return next({ ...e, context: [...(e.context ?? []), HINT] })
+    const hints = [...(style.diagramHints ? [HINT] : []), ...(style.dangerHints ? [DANGER_HINT] : [])]
+    if (hints.length === 0 || (e.origin.kind !== 'composer' && e.origin.kind !== 'bridge')) return next(e)
+    return next({ ...e, context: [...(e.context ?? []), ...hints] })
   })
 
   on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {

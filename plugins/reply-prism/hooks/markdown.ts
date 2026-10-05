@@ -1,5 +1,6 @@
 // 本家 prismantis の hooks/markdown.ts を元にした改変版。reply-prism で足したもの: 相対パス（`src/a/Foo.java:12`）の検出、
-// 表のセルの元の書き方（source）、コピー用の plainText。
+// 表のセルの元の書き方（source）、コピー用の plainText、Claude が `==…==` で囲んだ注意箇所（mark）。
+import { MARK_CLOSE, MARK_OPEN, dropMarks, markLine, markLines, restoreMarks } from './mark'
 import { PATH_IN_TEXT, isColorablePath, trimPathEnd } from './paths'
 
 export type Inline =
@@ -7,6 +8,8 @@ export type Inline =
   | { kind: 'strong'; children: Inline[] }
   | { kind: 'emphasis'; children: Inline[] }
   | { kind: 'strike'; children: Inline[] }
+  /** reply-prism: Claude が `==…==` で囲んだ注意箇所。危ない語と同じ見た目で描く。 */
+  | { kind: 'mark'; children: Inline[] }
   | { kind: 'code'; text: string }
   | { kind: 'link'; text: string; href: string }
   | { kind: 'number'; text: string }
@@ -56,10 +59,13 @@ const splitRow = (line: string): string[] => {
   return cells
 }
 
-const INLINE = /(`+)(?!`)(.+?)(?<!`)\1(?!`)|\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+?)\*\*|__([^_]+?)__|~~([^~]+?)~~|(?<![\w*])\*([^*\s][^*]*?)\*(?!\w)|(?<![\w_])_([^_\s][^_]*?)_(?!\w)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
+const BASE_INLINE = /(`+)(?!`)(.+?)(?<!`)\1(?!`)|\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+?)\*\*|__([^_]+?)__|~~([^~]+?)~~|(?<![\w*])\*([^*\s][^*]*?)\*(?!\w)|(?<![\w_])_([^_\s][^_]*?)_(?!\w)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/
+/** 本家の文中の書式に、印（mark.ts が置き換えた 2 文字に挟まれた部分）を足したもの。 */
+const INLINE = new RegExp(`${BASE_INLINE.source}|${MARK_OPEN}([^${MARK_OPEN}${MARK_CLOSE}]+)${MARK_CLOSE}`, 'g')
 const NUMBER = /(?<![\w.#/-])(v?\d+(?:[.,:]\d+)*(?:%|ms|s|m|h|d|Gi|Mi|GB|MB|KB|x)?)(?![\w/])/g
 
-const decorate = (text: string, hl: Highlight): Inline[] => {
+const decorate = (raw: string, hl: Highlight): Inline[] => {
+  const text = restoreMarks(raw)
   if (!hl.numbers && !hl.paths) return [{ kind: 'text', text }]
   const marks: { start: number; end: number; kind: 'number' | 'path' }[] = []
   if (hl.paths) {
@@ -88,23 +94,34 @@ const decorate = (text: string, hl: Highlight): Inline[] => {
   return out
 }
 
-export const parseInline = (text: string, hl: Highlight): Inline[] => {
-  if (text.length > MAX_INLINE) return [{ kind: 'text', text }]
+/**
+ * 印を置き換え済みの文を読む。印が太字などの境目で割れたとき（`**a ==b** c==`）は、残った置き換え文字を `==` に戻す。
+ * コード・リンクの中に入った置き換え文字も `==` に戻す（行をまたぐインラインコードなど）。
+ */
+const readInline = (text: string, hl: Highlight): Inline[] => {
+  if (text.length > MAX_INLINE) return [{ kind: 'text', text: dropMarks(text) }]
   const out: Inline[] = []
   let at = 0
   for (const m of text.matchAll(INLINE)) {
     if (m.index > at) out.push(...decorate(text.slice(at, m.index), hl))
-    if (m[2] !== undefined) out.push({ kind: 'code', text: m[2] })
-    else if (m[3] !== undefined) out.push({ kind: 'link', text: m[3], href: m[4] ?? "" })
-    else if (m[5] !== undefined || m[6] !== undefined) out.push({ kind: 'strong', children: parseInline(m[5] ?? m[6] ?? "", hl) })
-    else if (m[7] !== undefined) out.push({ kind: 'strike', children: parseInline(m[7], hl) })
-    else if (m[8] !== undefined || m[9] !== undefined) out.push({ kind: 'emphasis', children: parseInline(m[8] ?? m[9] ?? "", hl) })
-    else if (m[10] !== undefined) out.push({ kind: 'link', text: m[10], href: m[10] })
+    if (m[2] !== undefined) out.push({ kind: 'code', text: restoreMarks(m[2]) })
+    else if (m[3] !== undefined) out.push({ kind: 'link', text: restoreMarks(m[3]), href: restoreMarks(m[4] ?? "") })
+    else if (m[5] !== undefined || m[6] !== undefined) out.push({ kind: 'strong', children: readInline(m[5] ?? m[6] ?? "", hl) })
+    else if (m[7] !== undefined) out.push({ kind: 'strike', children: readInline(m[7], hl) })
+    else if (m[8] !== undefined || m[9] !== undefined) out.push({ kind: 'emphasis', children: readInline(m[8] ?? m[9] ?? "", hl) })
+    else if (m[10] !== undefined) out.push({ kind: 'link', text: restoreMarks(m[10]), href: restoreMarks(m[10]) })
+    else if (m[11] !== undefined) out.push({ kind: 'mark', children: readInline(m[11], hl) })
     at = m.index + m[0].length
   }
   if (at < text.length) out.push(...decorate(text.slice(at), hl))
   return out
 }
+
+/** 文中の書式を読む。`==…==` の印は行ごとに探す。 */
+export const parseInline = (text: string, hl: Highlight): Inline[] => readInline(markLines(text), hl)
+
+/** 行ごとに印を探してから、空白でつないで読む（段落・引用）。 */
+const parseLines = (lines: readonly string[], hl: Highlight): Inline[] => readInline(lines.map(markLine).join(' '), hl)
 
 /** 表のコピー用の素の文字列。リンクは `文字 (URL)`。 */
 export const plainText = (inline: Inline[]): string =>
@@ -122,7 +139,7 @@ export const parse = (source: string, hl: Highlight): Block[] => {
   let para: string[] = []
 
   const flush = (end: number) => {
-    if (para.length) add({ kind: 'paragraph', inline: parseInline(para.join(' '), hl) }, paraStart, end)
+    if (para.length) add({ kind: 'paragraph', inline: parseLines(para, hl) }, paraStart, end)
     para = []
   }
 
@@ -180,8 +197,8 @@ export const parse = (source: string, hl: Highlight): Block[] => {
       const body: string[] = []
       while (i < lines.length && /^\s*>/.test(at(i))) body.push(at(i++).replace(/^\s*>\s?/, ''))
       const alert = ALERT.exec(body[0] ?? '')
-      if (alert) add({ kind: 'alert', level: alert[1]!.toLowerCase() as AlertLevel, inline: parseInline([alert[2]!, ...body.slice(1)].join(' ').trim(), hl) }, start, i)
-      else add({ kind: 'quote', inline: parseInline(body.join(' '), hl) }, start, i)
+      if (alert) add({ kind: 'alert', level: alert[1]!.toLowerCase() as AlertLevel, inline: readInline([alert[2]!, ...body.slice(1)].map(markLine).join(' ').trim(), hl) }, start, i)
+      else add({ kind: 'quote', inline: parseLines(body, hl) }, start, i)
       i--
       continue
     }

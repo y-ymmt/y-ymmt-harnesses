@@ -8,7 +8,7 @@ Claude Code プラグイン（function hooks）。
 
 1. ファイルパスをエディタで開く（押して開くボタンと、cmd+クリックで開くリンク）
 2. 表のコピー形式を選べる（Markdown・TSV・Slack）
-3. 危ない語（`本番` `DELETE` `rm -rf` など）を赤背景で目立たせる
+3. 危ない語（`本番` `DELETE` `rm -rf` など）と、Claude が `==…==` で囲んだ注意箇所を赤背景で目立たせる
 4. 長い表・コードブロックを畳む
 5. 表を列で並べ替える
 
@@ -125,9 +125,17 @@ Slack のコードブロックのフォントでは全角文字がちょうど 2
 
 ### 3. 危ない語を目立たせる
 
+2 つの仕組みを併せて使う。どちらも白文字＋赤背景＋太字（`mono` テーマでは反転＋太字）で描く。
+
+| 仕組み | 何を拾うか | どこで効くか |
+|---|---|---|
+| 語の一覧 | 決まった語（下の既定の語）に正規表現で当てる。文脈は見ない | 文・表・インラインコード・コードブロック・ツール行 |
+| Claude の判定 | 返事を書く Claude 自身が、特に注意すべき箇所を `==…==` で囲む | 文・リスト・見出し・引用・表のセル（コードの中は除く） |
+
+#### 語の一覧
+
 既定の語: `本番` `production` `prod` `DELETE` `UPDATE` `DROP` `TRUNCATE` `ALTER` `--force` `--hard` `rm -rf` `rm -fr`。
-返事の文・表・インラインコード・コードブロック・ツール行のコマンド（`Ran …`）・まとめた行の `last:` を、
-白文字＋赤背景＋太字にする（`mono` テーマでは反転＋太字）。
+返事の文・表・インラインコード・コードブロック・ツール行のコマンド（`Ran …`）・まとめた行の `last:` で当てる。
 
 - **語の境目**: 英数字で始まる・終わる語は、前後が英数字でないときだけ当たる。`prod` は `prod-db` に当たり、`product` には当たらない。
   `本番` のような日本語は文字列のどこにでも当たる（`本番環境` も）
@@ -135,9 +143,36 @@ Slack のコードブロックのフォントでは全角文字がちょうど 2
   小文字だけの語（`production`）は区別しない。**シェル・SQL のコードブロックとツール行のコマンドの中では区別しない**（`delete from users` も当たる）
 - 語の中の空白は 1 つ以上の空白に当たる（`rm  -rf` も当たる）
 
+#### Claude の判定（`==…==`）
+
+語の一覧では「この操作は元に戻せない」「全件が更新される」のような文脈で危ない箇所を拾えない。そこで、
+プロンプトを送るたびにモデルだけが読む短い英語の注記（`dangerHints`、1 回約 90 トークン。図の注記 `diagramHints` と同じ仕組みで、
+ユーザーには見えない）を添え、返事を書く Claude 自身に囲ませる。注記で頼んでいること:
+
+- 取り返しのつかない操作・本番環境への影響・データの消失や全件更新・セキュリティ上の危険など、読み手が見落とすと困る箇所だけを囲む
+- 囲むのは文全体ではなく要点の短い語句で、1 つの返事で数か所まで。ただの強調には使わない（強調は `**太字**`）
+- コードブロックとインラインコードの中には書かない（コードの中は語の一覧で強調される）
+
+reply-prism は `==` で挟まれた部分を危ない語と同じ見た目で描き、`==` は描かない。中に太字・パス・数があってもそのまま描く
+（色だけ危ない語の文字の色に揃える。パスはリンクのまま、`開く:` の行にも出る）。次のものは印にせず、書かれたとおりの文字で描く:
+
+- コードブロック・インラインコードの中の `==`（`a == b` などの比較）
+- 対になっていない `==`、空の `====`、中身が空白で始まる・終わるもの（`== ==` `a == b == c`）、英数字に挟まれた `x==y`、`===`
+- 改行をまたぐもの（1 行の中で閉じていないもの）
+
+`dangerHighlight` を `false` にすると、`==…==` は印を外した普通の文字で描き（記号も出さない）、注記も付けない。
+`dangerHints` だけを `false` にすると注記を付けないが、返事に `==…==` があれば同じように描く。
+
+- **コピー**: 表（Markdown・TSV・Slack のどれでも）・リスト・引用のコピーボタンでは `==` の印を外した文をコピーする（危ない語はそのまま残る）。
+  コードブロックのコピーは書かれたまま。**Claude Code 標準の `/copy` は返事の元の文をコピーするので `==` が残る**
+- **デスクトップ**などの端末以外の表示面でも、同じく赤背景で描き、`==` は描かない
+- **reply-prism を切ると** Claude Code 標準の描画に戻り、`==` がそのまま見える（切った後のプロンプトには注記が付かないが、
+  それまでの返事には `==` が残っている）。本家 prismantis だけで描いたときも同じ
+
 | 設定 | 値 | 既定 |
 |---|---|---|
-| `dangerHighlight` | `false` で目立たせない | `true` |
+| `dangerHighlight` | `false` で目立たせない（`==…==` は印を外した普通の文字で描き、注記も付けない） | `true` |
+| `dangerHints` | `false` で Claude への注記を付けない（返事にある `==…==` は描く） | `true` |
 | `dangerWords` | 既定の一覧を**置き換える**語。カンマか読点（、）で区切る | 空（既定の一覧） |
 | `dangerWordsExtra` | 一覧に**足す**語。例 `商用,stg-db,--no-verify` | 空 |
 | `dangerColor` / `dangerBackgroundColor` | 文字と背景の色（色の書き方は下の表） | 白 / `#d20f39` |
@@ -243,7 +278,7 @@ Mermaid を図にしたブロックは畳まない。
 | `<token>Color` | 色（下の書き方）。項目は本家と同じ 20 個（`accentColor` `headingColor` `tableHeaderColor` `numberColor` `pathColor` など） | テーマ |
 | `editor` `editorUrlTemplate` `openRow` `openRowMax` | 上の「1.」 | `vscode` / 空 / `true` / `8` |
 | `tableCopyFormats` | 上の「2.」 | `markdown,tsv,slack` |
-| `dangerHighlight` `dangerWords` `dangerWordsExtra` `dangerColor` `dangerBackgroundColor` | 上の「3.」 | |
+| `dangerHighlight` `dangerHints` `dangerWords` `dangerWordsExtra` `dangerColor` `dangerBackgroundColor` | 上の「3.」 | |
 | `foldLines` `foldPreviewLines` | 上の「4.」 | `40` / `15` |
 | `tableSort` | 上の「5.」 | `true` |
 
@@ -272,7 +307,7 @@ Mermaid を図にしたブロックは畳まない。
 | tmux の中 | 未確認 | リンクが外の端末まで届くかは tmux の設定次第 |
 | 罫線を 2 桁で描く設定の端末 | 未対応 | 表・コードの枠・Mermaid の図の桁がずれる（推測）。罫線の無いフォントには `mermaidAscii` がある |
 | デスクトップアプリ・VS Code 拡張・モバイル | 未確認 | 返事・ツール行・コマンドの出力は表示面を問わず描き直し、リンクと開くボタンだけ出さない（本家と同じ）。ターンの終わりの行は terminal でしか描かれない。テストは terminal と desktop の両方で描き、desktop でリンクとボタンが出ないことを見ている。VS Code 拡張・モバイルはテストも無い |
-| `claude -p`・SDK | 未対応 | 描かない（Claude Code が描かないため）。`diagramHints` の注記も付けない（送り元が端末の入力欄か Remote Control のときだけ付ける。コードでそうしている） |
+| `claude -p`・SDK | 未対応 | 描かない（Claude Code が描かないため）。`diagramHints` `dangerHints` の注記も付けない（送り元が端末の入力欄か Remote Control のときだけ付ける。コードでそうしている） |
 
 ### OS と開き方
 
@@ -285,6 +320,7 @@ Mermaid を図にしたブロックは畳まない。
 
 - 足した 5 つの機能のテスト（`tests/reply-prism.test.tsx`）は `claude-code/testing` の terminal で、パスの拾い方・URL・`open` / `xdg-open`
   に渡す引数・トースト・コピーの中身を見ている。Windows のパスは開くボタンの key の読み戻しだけ
+- `==…==` の注意箇所はテストで描き方・コピー・注記の有無を見ている（desktop も）。Claude が実際にどこを囲むか（注記の効き目）はテストでは確かめられない
 - Notion への貼り付けは確かめていない（「2. 表のコピー形式」）
 
 ## 仕組み
@@ -293,14 +329,16 @@ Mermaid を図にしたブロックは畳まない。
 .claude-plugin/plugin.json   manifest（userConfig・types）                       改変（名前・作者・日本語の項目・足した設定）
 hooks/hooks.json             modules: ["./register.tsx"]                         本家のまま
 hooks/register.tsx           フックと `$` を使う処理すべて                        改変（下の「足したもの」）
-hooks/render.tsx             ブロック → Box/Text の木                             改変（危ない語・リンク・開くボタン・畳む・並べ替え・形式別コピー）
-hooks/markdown.ts            Markdown → ブロック                                  改変（相対パスの検出、表のセルの元の書き方）
+hooks/render.tsx             ブロック → Box/Text の木                             改変（危ない語と注意箇所・リンク・開くボタン・畳む・並べ替え・形式別コピー）
+hooks/markdown.ts            Markdown → ブロック                                  改変（相対パスの検出、表のセルの元の書き方、`==…==` の注意箇所）
 hooks/theme.ts               設定の読み込み                                        改変（足した設定）
 hooks/help.ts                /reply-prism の画面                                  改変（日本語化・足した機能の見本）
-hooks/presets.ts mermaid.tsx rtl.ts  テーマ・図・右から左                        本家のまま
+hooks/presets.ts mermaid.tsx  テーマ・図                                       本家のまま
+hooks/rtl.ts                 右から左                                             改変（注意箇所の節を太字などと同じに扱うだけ）
 hooks/vendor/                Prism・beautiful-mermaid の同梱版                    本家のまま（scripts/ で作り直せる）
 hooks/paths.ts               パスの検出・絶対化・エディタの URL・開くボタンの key  独自
 hooks/danger.ts              危ない語の検出                                        独自
+hooks/mark.ts                `==…==` の注意箇所の検出・コピー用に外す・Claude への注記  独自
 hooks/table.ts               並べ替え（値の種類の判定）とコピー形式                独自
 hooks/width.ts               表示幅                                               本家 render.tsx から切り出し（中身は同じ）
 types/index.d.ts             $.state の契約（reply-prism.view）                   独自

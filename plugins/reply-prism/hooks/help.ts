@@ -53,6 +53,8 @@ src/main/java/com/example/app/AppService.java:42 や \`hooks/render.tsx:120\`、
 
 本番の users テーブルに DELETE を流す前に、\`--force\` や rm -rf が混ざっていないか見る。
 
+Claude が選んだ箇所も同じ見た目になる: このマイグレーションは ==元に戻せない== ので、先にバックアップを取る。
+
 \`\`\`sql
 delete from users where id = 1;
 UPDATE orders SET status = 'done';

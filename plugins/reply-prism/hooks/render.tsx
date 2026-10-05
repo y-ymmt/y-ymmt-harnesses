@@ -1,4 +1,4 @@
-// 本家 prismantis の hooks/render.tsx を元にした改変版。reply-prism で足したもの: 危ない語の強調（paint）、
+// 本家 prismantis の hooks/render.tsx を元にした改変版。reply-prism で足したもの: 危ない語の強調（paint）と Claude の注意箇所（mark）、
 // パスのリンク（linked）、表の並べ替え・折りたたみ・形式別コピー、コードの折りたたみ、ボタンの日本語化。
 import type { ElementTable, RenderElement } from 'claude-code'
 
@@ -6,12 +6,14 @@ import type { Block, Inline } from './markdown'
 import { inlineText, plainText } from './markdown'
 import type { Range } from './danger'
 import { dangerRanges, splitByRanges } from './danger'
+import { stripLine, stripMarks, stripTable } from './mark'
 import type { OpenTarget } from './paths'
 import { isPathLike, openKey, openLabel } from './paths'
 import { commentTail, commentVisual, flow, hasRtl } from './rtl'
 import type { CopyFormat, SortDir } from './table'
 import { COPY_DONE, COPY_LABEL, sortOrder, toMarkdown, toSlack, toTsv } from './table'
 import type { Style, Theme } from './theme'
+import { TOKENS } from './theme'
 import type { PrismToken } from './vendor/prism.js'
 import { languages, tokenize } from './vendor/prism.js'
 import { width } from './width'
@@ -41,6 +43,12 @@ const paint = (el: ElementTable, style: Style, text: string, key: string, props:
     </Text>
   )
 }
+
+/**
+ * 注意箇所（`==…==`）の中を描くときの見た目。テーマの色をすべて危ない語の文字の色にして、
+ * 中の太字・パス・数なども赤背景の上で読めるようにする（太字・リンク・下線などの形はそのまま）。
+ */
+const markStyle = (style: Style): Style => ({ ...style, theme: Object.fromEntries(TOKENS.map(k => [k, style.dangerColor])) as Theme })
 
 /** 端末で描くときだけ、パスをエディタで開くリンクで包む。 */
 const linked = (el: ElementTable, style: Style, target: string, child: RenderElement, key: string, isFile = false): RenderElement => {
@@ -124,6 +132,10 @@ const renderInline = (el: ElementTable, style: Style, nodes: Inline[], keyBase: 
         return <Text key={key} italic color={t.emphasis}>{renderInline(el, style, n.children, key)}</Text>
       case 'strike':
         return <Text key={key} strikethrough dimColor>{renderInline(el, style, n.children, key)}</Text>
+      case 'mark':
+        return style.marks
+          ? <Text key={key} {...dangerProps(style)}>{renderInline(el, markStyle(style), n.children, key)}</Text>
+          : <Text key={key}>{renderInline(el, style, n.children, key)}</Text>
       case 'code': {
         const code = paint(el, style, n.text, key, { color: t.inlineCode }, 'prose')
         return isPathLike(n.text) ? linked(el, style, n.text, code, `${key}.l`) : code
@@ -321,7 +333,7 @@ const tableCopyText = (block: Extract<Block, { kind: 'table' }>, view: BlockView
   const isSorted = view.sortDir !== undefined
   switch (format) {
     case 'markdown':
-      return isSorted ? toMarkdown(block.source.header, block.align, order.map(i => block.source.rows[i] ?? [])) : block.raw
+      return isSorted ? toMarkdown(block.source.header.map(stripLine), block.align, order.map(i => (block.source.rows[i] ?? []).map(stripLine))) : stripTable(block.raw)
     case 'tsv':
       return toTsv(block.header.map(plainText), order.map(i => (block.rows[i] ?? []).map(plainText)))
     case 'slack':
@@ -522,8 +534,9 @@ const tableButtons = (el: ElementTable, style: Style, block: Extract<Block, { ki
   return <el.Box key={`copies${b}`} flexDirection="row" columnGap={1}>{buttons}</el.Box>
 }
 
+/** コピーする文。リスト・引用からは `==` の印を外す（コードはそのまま）。 */
 const copySource = (block: Block): string | undefined =>
-  block.kind === 'code' ? block.lines.join('\n') : block.kind === 'table' || block.kind === 'list' ? block.raw : block.kind === 'quote' || block.kind === 'alert' ? block.raw.split('\n').map(line => line.replace(/^\s*>\s?/, '')).join('\n') : undefined
+  block.kind === 'code' ? block.lines.join('\n') : block.kind === 'table' ? stripTable(block.raw) : block.kind === 'list' ? stripMarks(block.raw) : block.kind === 'quote' || block.kind === 'alert' ? stripMarks(block.raw.split('\n').map(line => line.replace(/^\s*>\s?/, '')).join('\n')) : undefined
 
 export const renderBlocks = (el: ElementTable, style: Style, blocks: Block[], columns: number, drawn: Drawn = new Map(), copy?: CopyButton, controls?: Controls): RenderElement[] => {
   const { Box, Text } = el

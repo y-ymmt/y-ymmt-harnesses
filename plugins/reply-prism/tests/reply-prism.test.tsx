@@ -6,6 +6,8 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { buildDanger, dangerRanges, parseWords } from '../hooks/danger'
+import { showcaseText } from '../hooks/help'
+import { DANGER_HINT, findMarks, markLines, stripMarks, stripTable } from '../hooks/mark'
 import { parse } from '../hooks/markdown'
 import { editorUrl, isPathLike, openKey, openLabel, parseOpenKey, resolvePath, splitTarget } from '../hooks/paths'
 import { columnKind, nextSort, parseDate, parseNumber, sortOrder, toMarkdown, toSlack, toTsv } from '../hooks/table'
@@ -252,6 +254,175 @@ describe('3. 危ない語を目立たせる', () => {
     const ui = await $.ui.mount(reply('本番で DELETE'))
     expect(await dangerTexts(ui)).toEqual([])
     await ui.unmount()
+  })
+})
+
+// ---------------------------------------------------------------------------
+/** 画面のどこかに `==` が残っているか（Text の中身はつないだ文字）。 */
+const hasMarkSymbol = async (ui: { findAll: (q: { type: 'Text' }) => Promise<{ text?: string }[]> }) =>
+  (await ui.findAll({ type: 'Text' })).some(t => (t.text ?? '').includes('=='))
+
+/** 送られたプロンプトに付いた注記を集める。 */
+const captureContext = (on: On) => {
+  const seen: (readonly string[])[] = []
+  mock.env(on, {})
+  on('prompt.submit', (_, e) => {
+    seen.push(e.context ?? [])
+    return { text: e.text, context: e.context }
+  })
+  return seen
+}
+
+describe('3b. Claude が ==…== で囲んだ注意箇所', () => {
+  test('印の見つけ方: コードの中・対でない・空・空白・改行・=== は印にしない', async () => {
+    const found = (line: string) => findMarks(line).map(r => line.slice(r.start, r.end))
+    expect(found('この操作は ==元に戻せない== ので ==全件== が消える')).toEqual(['==元に戻せない==', '==全件=='])
+    expect(found('`a == b` と `x==y` は比較')).toEqual([])
+    expect(found('`a == b` の後の ==本番== は印')).toEqual(['==本番=='])
+    expect(found('==`rm -rf` で消える==')).toEqual(['==`rm -rf` で消える=='])
+    expect(found('a ==b だけ')).toEqual([])
+    expect(found('空の ==== と == == と a == b == c')).toEqual([])
+    expect(found('x==y==z と a === b === c')).toEqual([])
+    expect(markLines('==前の行\n次の行==')).toBe('==前の行\n次の行==')
+    expect(stripMarks('- ==本番== の DELETE\n- `a == b`')).toBe('- 本番 の DELETE\n- `a == b`')
+    expect(stripTable('| ==a | b== | ==c== |')).toBe('| ==a | b== | c |')
+  })
+
+  test('注記が付く（ユーザーには見えない context）', async ($, on) => {
+    const seen = captureContext(on)
+    await $.prompt.submit({ text: 'DB を移行して', wait: false, origin: { kind: 'composer' } })
+    expect(seen[0]).toContain(DANGER_HINT)
+    expect(DANGER_HINT).toContain('==text==')
+    expect(DANGER_HINT.split(/\s+/).length < 80).toBe(true)
+  })
+
+  test('図の注記をオフにしても、注意箇所の注記は付く', { options: { diagramHints: false } }, async ($, on) => {
+    const seen = captureContext(on)
+    await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+    expect(seen[0]).toEqual([DANGER_HINT])
+  })
+
+  test('dangerHints: false なら注記を付けない', { options: { dangerHints: false } }, async ($, on) => {
+    const seen = captureContext(on)
+    await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+    expect(seen[0]).not.toContain(DANGER_HINT)
+  })
+
+  test('dangerHighlight: false なら注記も付けない', { options: { dangerHighlight: false } }, async ($, on) => {
+    const seen = captureContext(on)
+    await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+    expect(seen[0]).not.toContain(DANGER_HINT)
+  })
+
+  test('囲まれた部分を危ない語と同じ見た目で描き、== は描かない', async $ => {
+    const ui = await $.ui.mount(reply('このマイグレーションは ==元に戻せない== ので、先にバックアップを取る。'))
+    expect(await dangerTexts(ui)).toEqual(['元に戻せない'])
+    const mark = await ui.find({ type: 'Text', text: /^元に戻せない$/ })
+    expect(mark?.props.backgroundColor).toBe(RED)
+    expect(mark?.props.color).toBe('#ffffff')
+    expect(mark?.props.bold).toBe(true)
+    expect(await hasMarkSymbol(ui)).toBe(false)
+    await ui.unmount()
+  })
+
+  test('リスト・見出し・引用・表のセルでも描く', async $ => {
+    const text = ['## ==全件更新== の前に', '', '- 対象は ==全ユーザー==', '', '> ==戻せない== 操作', '', '| 手順 | 影響 |', '|---|---|', '| 移行 | ==停止する== |'].join('\n')
+    const ui = await $.ui.mount(reply(text))
+    expect(await dangerTexts(ui)).toEqual(['全件更新', '全ユーザー', '戻せない', '停止する'])
+    expect(await hasMarkSymbol(ui)).toBe(false)
+    await ui.unmount()
+  })
+
+  test('コードブロック・インラインコードの中の == はそのまま', async $ => {
+    const ui = await $.ui.mount(reply(['`a == b` を確かめる', '', '```ts', 'if (a == b) run()', '```'].join('\n')))
+    expect(await ui.find({ type: 'Text', text: /^a == b$/ })).toBeDefined()
+    expect((await ui.findAll({ type: 'Text' })).some(t => (t.text ?? '').includes('(a == b)'))).toBe(true)
+    expect(await dangerTexts(ui)).toEqual([])
+    await ui.unmount()
+  })
+
+  test('対になっていない == や空の ==== は書かれたとおりの文字', async $ => {
+    const ui = await $.ui.mount(reply('x ==y と ==== と == == はそのまま'))
+    expect(await ui.find({ type: 'Text', text: /^x ==y と ==== と == == はそのまま$/ })).toBeDefined()
+    expect(await dangerTexts(ui)).toEqual([])
+    await ui.unmount()
+  })
+
+  test('改行をまたぐものは印にしない', async $ => {
+    const ui = await $.ui.mount(reply('最初の ==行\n次の行== まで'))
+    expect(await ui.find({ type: 'Text', text: /^最初の ==行 次の行== まで$/ })).toBeDefined()
+    expect(await dangerTexts(ui)).toEqual([])
+    await ui.unmount()
+  })
+
+  test('中の太字・パス・危ない語は崩れない（パスはリンクのまま「開く:」にも出る）', async ($, on) => {
+    await start($, on)
+    const ui = await $.ui.mount(reply('==**src/db/Migrate.java:12** が本番の users を消す== ので止める'))
+    const outer = (await ui.findAll({ type: 'Text' })).find(t => t.props.backgroundColor === RED && /Migrate/.test(t.text ?? ''))
+    // テストの描画では Link の中身の前に href が並ぶので、終わりで見る。
+    expect(outer?.text?.endsWith('src/db/Migrate.java:12 が本番の users を消す')).toBe(true)
+    expect((await ui.find({ type: 'Text', text: /^src\/db\/Migrate\.java:12$/ }))?.props.color).toBe('#ffffff')
+    expect((await ui.find({ type: 'Link' }))?.props.href).toBe('vscode://file/work/example-app/src/db/Migrate.java:12')
+    expect((await ui.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('open:')).map(b => b.props.label)).toEqual(['Migrate.java:12'])
+    expect((await ui.findAll({ type: 'Text', text: /^本番$/ })).some(t => t.props.backgroundColor === RED)).toBe(true)
+    expect(await hasMarkSymbol(ui)).toBe(false)
+    await ui.unmount()
+  })
+
+  test('dangerHighlight: false なら印を外した普通の文字で描く', { options: { dangerHighlight: false } }, async $ => {
+    const ui = await $.ui.mount(reply('この操作は ==元に戻せない== ので注意'))
+    expect(await dangerTexts(ui)).toEqual([])
+    expect(await ui.find({ type: 'Text', text: /^この操作は 元に戻せない ので注意$/ })).toBeDefined()
+    expect(await hasMarkSymbol(ui)).toBe(false)
+    await ui.unmount()
+  })
+
+  test('mono テーマでは反転で描く', { options: { theme: 'mono' } }, async $ => {
+    const ui = await $.ui.mount(reply('==戻せない=='))
+    expect((await ui.findAll({ type: 'Text', text: /^戻せない$/ })).some(x => x.props.inverse === true && x.props.bold === true)).toBe(true)
+    await ui.unmount()
+  })
+
+  test('デスクトップでも == は描かない', async $ => {
+    const ui = await $.ui.mount(reply('- ==全件== を消す\n\n| a |\n|---|\n| ==停止== |', 'desktop'))
+    expect(await dangerTexts(ui)).toEqual(['全件', '停止'])
+    expect(await hasMarkSymbol(ui)).toBe(false)
+    await ui.unmount()
+  })
+
+  test('リスト・引用・表のコピーからは印を外す（危ない語とコードはそのまま）', async ($, on) => {
+    const copied = captureCopies(on)
+    const text = ['- ==本番== の DELETE', '- `a == b`', '', '> ==戻せない== 操作', '', '| 手順 | 影響 |', '|---|---|', '| 移行 | ==停止する== |', '', '```sql', 'select 1 where a == b', '```'].join('\n')
+    const ui = await $.ui.mount(reply(text))
+    for (const key of ['copy0', 'copy1', 'copy2.markdown', 'copy2.tsv', 'copy2.slack', 'copy3']) await ui.press({ key })
+    expect(copied[0]).toBe('- 本番 の DELETE\n- `a == b`')
+    expect(copied[1]).toBe('戻せない 操作')
+    expect(copied[2]).toBe('| 手順 | 影響 |\n|---|---|\n| 移行 | 停止する |')
+    expect(copied[3]).toBe('手順\t影響\n移行\t停止する')
+    expect(copied[4]?.includes('停止する')).toBe(true)
+    expect(copied[4]?.includes('==')).toBe(false)
+    expect(copied[5]).toBe('select 1 where a == b')
+    await ui.unmount()
+  })
+
+  test('印のある表も並べ替えられ、並べ替えたコピーにも印は残らない', async ($, on) => {
+    const copied = captureCopies(on)
+    const ui = await $.ui.mount(reply('| 環境 | 件数 |\n|---|---:|\n| prod | ==100== |\n| dev | 9 |'))
+    await ui.press({ key: 'sort.b0.1' })
+    await ui.press({ key: 'copy0.markdown' })
+    expect(copied[0]).toBe('| 環境 | 件数 |\n| --- | ---: |\n| dev | 9 |\n| prod | 100 |')
+    await ui.unmount()
+  })
+
+  test('右から左に描くときも印を描かない', { options: { rtl: 'warp' } }, async $ => {
+    const ui = await $.ui.mount(reply('שלום ==עולם== סוף'))
+    expect((await dangerTexts(ui)).length > 0).toBe(true)
+    expect(await hasMarkSymbol(ui)).toBe(false)
+    await ui.unmount()
+  })
+
+  test('/reply-prism demo に見本がある', async () => {
+    expect(findMarks(showcaseText(['nord']).split('\n').find(l => l.includes('==')) ?? '')).toHaveLength(1)
   })
 })
 

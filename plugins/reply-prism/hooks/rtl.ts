@@ -20,7 +20,7 @@ export const TERMINALS = {
 
 export type Terminal = keyof typeof TERMINALS
 
-type Fmt = { wrap: ('strong' | 'emphasis' | 'strike')[]; leaf: 'text' | 'code' | 'number' | 'path' | 'link' | 'dim' }
+type Fmt = { wrap: ('strong' | 'emphasis' | 'strike' | 'mark')[]; leaf: 'text' | 'code' | 'number' | 'path' | 'link' | 'dim' }
 type Unit = { ch: string; fmt: Fmt }
 
 const R = /[֐-׿؀-ٟ٪-ۯۺ-ݿࢠ-ࣿיִ-﷿ﹰ-﻿]/
@@ -50,6 +50,7 @@ const flatten = (nodes: Inline[], wrap: Fmt['wrap'] = []): Unit[] =>
       case 'strong':
       case 'emphasis':
       case 'strike':
+      case 'mark':
         return flatten(n.children, [...wrap, n.kind])
       case 'link':
         return n.text === n.href

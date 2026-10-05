@@ -320,7 +320,13 @@
     "dangerHighlight": {
       "type": "boolean",
       "title": "危ない語を目立たせる",
-      "description": "本番・production・prod・DELETE・UPDATE・DROP・TRUNCATE・--force・rm -rf などを、返事・コード・コマンド行で赤背景にする",
+      "description": "本番・production・prod・DELETE・UPDATE・DROP・TRUNCATE・--force・rm -rf などと、Claude が ==…== で囲んだ注意箇所を、返事・コード・コマンド行で赤背景にする。オフにすると ==…== は印を外した普通の文字で描く",
+      "default": true
+    },
+    "dangerHints": {
+      "type": "boolean",
+      "title": "注意すべき箇所を Claude に囲ませる",
+      "description": "打ったプロンプトに、モデルだけが読む短い注記（取り返しのつかない操作・本番への影響・データの消失や全件更新・セキュリティの危険を ==…== で囲むこと）を添える。囲まれた箇所は危ない語と同じ見た目で描き、== は描かない。1 回あたり約 90 トークン。「危ない語を目立たせる」がオフなら付けない",
       "default": true
     },
     "dangerWords": {

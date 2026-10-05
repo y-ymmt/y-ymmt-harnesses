@@ -1,4 +1,4 @@
-// 本家 prismantis の hooks/theme.ts を元にした改変版。reply-prism の設定（エディタ・危ない語・折りたたみ・表の並べ替えとコピー形式）を足している。
+// 本家 prismantis の hooks/theme.ts を元にした改変版。reply-prism の設定（エディタ・危ない語と Claude の注意箇所・折りたたみ・表の並べ替えとコピー形式）を足している。
 import type { PluginOptions } from 'claude-code'
 
 import type { DangerMatchers } from './danger'
@@ -46,6 +46,10 @@ export type Style = {
   danger: DangerMatchers | null
   dangerColor?: string
   dangerBackground?: string
+  /** Claude が `==…==` で囲んだ箇所を危ない語と同じ見た目で描くか（`dangerHighlight`）。false でも印の記号は描かない。 */
+  marks: boolean
+  /** プロンプトに「注意すべき箇所を `==…==` で囲む」注記を添えるか。`dangerHighlight` がオフなら添えない。 */
+  dangerHints: boolean
   /** これより行数の多い表・コードは畳む（0 で畳まない）。畳んだときは先頭 `preview` 行だけ見せる。 */
   fold: { threshold: number; preview: number }
   tableSort: boolean
@@ -99,6 +103,8 @@ export const resolveStyle = (options: PluginOptions): Style => {
     openRow: options.openRow !== false,
     openRowMax: int(options.openRowMax, 8, 1, 100),
     danger: options.dangerHighlight === false || words.length === 0 ? null : buildDanger(words),
+    marks: options.dangerHighlight !== false,
+    dangerHints: options.dangerHints !== false && options.dangerHighlight !== false,
     ...(isColor(options.dangerColor) ? { dangerColor: String(options.dangerColor).trim() } : isMono ? {} : { dangerColor: DEFAULT_DANGER_COLOR }),
     ...(isColor(options.dangerBackgroundColor) ? { dangerBackground: String(options.dangerBackgroundColor).trim() } : isMono ? {} : { dangerBackground: DEFAULT_DANGER_BACKGROUND }),
     fold: { threshold: fold, preview: Math.min(int(options.foldPreviewLines, 15, 1, 100000), fold || Infinity) },
