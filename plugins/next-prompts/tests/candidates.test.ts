@@ -8,13 +8,19 @@ import { describe, expect, test } from 'bun:test'
 import {
   cellWidth,
   cleanText,
+  fingerprintOf,
+  isSimilar,
+  KINDS,
   lastUserText,
   layoutLabels,
   mergeCandidates,
   parseCandidates,
   promptOf,
+  requestCountOf,
+  systemOf,
   transcriptOf,
   truncateLabel,
+  uniqueCandidates,
   TRANSCRIPT_BUDGET,
 } from '../hooks/candidates'
 import type { Message } from '../hooks/candidates'
@@ -86,7 +92,7 @@ describe('会話の切り詰め', () => {
 
     expect(prompt).toContain('<conversation>')
     expect(prompt).toContain('直前のユーザーの依頼: 「こんにちは」')
-    expect(prompt).toContain('4 個')
+    expect(prompt).toContain('6 個')
   })
 })
 
@@ -129,6 +135,59 @@ describe('JSON の取り出し', () => {
       'PR を作って',
     ])
     expect(mergeCandidates('直前の依頼', ['x'], 4, '直前の依頼')).toEqual(['x'])
+  })
+})
+
+describe('似た候補を除く', () => {
+  test('同じ選択肢を選ぶ言い換えは 1 つにまとめる（標準の提案を優先）', () => {
+    expect(
+      mergeCandidates('1で実装して', ['1 番でいいよ、実装して', '2 番で作って、コストは後でいい', 'とりあえず 1 番で進めて', 'テストも書いて'], 4, ''),
+    ).toEqual(['1で実装して', '2 番で作って、コストは後でいい', 'テストも書いて'])
+  })
+
+  test('言い回しだけ違うものは除き、違う依頼は残す', () => {
+    expect(isSimilar('コミットしてpushして', 'pushして')).toBe(true)
+    expect(isSimilar('README を直して', 'README も直して')).toBe(true)
+    expect(isSimilar('テストも書いて', 'コミットして')).toBe(false)
+    expect(isSimilar('差分を見せて', 'pushして')).toBe(false)
+  })
+
+  test('直前の依頼の言い換えも出さない', () => {
+    expect(uniqueCandidates(['pushして', '差分を見せて'], 4, ['コミットしてpushして'])).toEqual(['差分を見せて'])
+  })
+
+  test('種類つきの返事は、同じ種類を 1 つだけ残す', () => {
+    const reply = JSON.stringify([
+      { kind: '答える', text: '1 で進めて' },
+      { kind: '答える', text: 'やっぱり 2 で' },
+      { kind: '確かめる', text: '動くか試して' },
+      { kind: '片付ける', text: 'コミットして' },
+      { kind: '進める', text: '次の画面も作って' },
+    ])
+
+    expect(parseCandidates(reply, 4)).toEqual(['1 で進めて', '動くか試して', 'コミットして', '次の画面も作って'])
+  })
+
+  test('モデルには多めに、種類を分けて頼む', () => {
+    expect(requestCountOf(4)).toBe(6)
+    expect(requestCountOf(6)).toBe(KINDS.length)
+    expect(systemOf(4)).toContain('1 つの種類は 1 回だけ')
+  })
+})
+
+describe('会話の指紋', () => {
+  const talk = (answer: string): Message[] => [
+    { role: 'user', text: '直して' },
+    { role: 'assistant', text: '', toolUses: [{ tool: 'Edit' }] },
+    { role: 'user', text: '', toolResults: [{}] },
+    { role: 'assistant', text: answer },
+  ]
+
+  test('同じ位置なら同じ、返事が違えば違う。空の会話は null', () => {
+    expect(fingerprintOf(talk('直しました'))).toBe(fingerprintOf(talk('直しました')))
+    expect(fingerprintOf(talk('直しました'))).not.toBe(fingerprintOf(talk('別の返事')))
+    expect(fingerprintOf([...talk('直しました'), { role: 'user', text: '次も' }])).not.toBe(fingerprintOf(talk('直しました')))
+    expect(fingerprintOf([])).toBeNull()
   })
 })
 

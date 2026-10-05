@@ -8,6 +8,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import {
   HEADING,
   GAP,
+  fingerprintOf,
   lastUserText,
   layoutLabels,
   mergeCandidates,
@@ -26,8 +27,17 @@ const PLUGIN = 'next-prompts'
 /** 候補ボタンの key の頭（後ろに位置の番号を付ける）。 */
 export const BUTTON_PREFIX = 'next-prompt-'
 
-/** モデルの返事の上限トークン。候補 6 つ × 40 文字でも十分に収まる。 */
-const MAX_TOKENS = 512
+/** モデルの返事の上限トークン。種類つきの候補 7 つ × 40 文字でも十分に収まる。 */
+const MAX_TOKENS = 768
+
+/** 保存した候補の置き場所（`$.store`）。 */
+const SAVED_KEY = 'saved'
+
+/** 保存しておく会話の数。古いものから捨てる。 */
+const SAVED_LIMIT = 30
+
+/** 保存した候補 1 つぶん。`fingerprint` は会話のいまの位置（`fingerprintOf`）。 */
+type Saved = { fingerprint: string; generated: string[]; lastPrompt: string; at: number }
 
 /** 候補づくりにかけてよい時間。過ぎたら諦めて何も出さない。 */
 const TIMEOUT_MS = 20_000
@@ -51,6 +61,8 @@ type View = {
   armed: { element: string; until: number } | null
   /** メインのターンが走っているか。 */
   isRunning: boolean
+  /** 保存した候補を読み戻しにいったか（セッションの始まりに 1 回だけ）。 */
+  isRestoreTried: boolean
 }
 
 function booleanOf(value: unknown, fallback: boolean): boolean {
@@ -70,6 +82,55 @@ function modelOf(value: unknown): string {
 /** 描き直しを頼む。 */
 function redraw($: EngineInterface): void {
   $.ui.invalidate('ui.render')
+}
+
+function savedOf(value: unknown): Saved[] {
+  if (!Array.isArray(value)) return []
+
+  return value.filter(
+    (item): item is Saved =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as Saved).fingerprint === 'string' &&
+      Array.isArray((item as Saved).generated) &&
+      (item as Saved).generated.every(text => typeof text === 'string') &&
+      typeof (item as Saved).lastPrompt === 'string',
+  )
+}
+
+/** 作った候補を、その会話の位置と一緒に保存する（`claude -c` / `-r` で再開したときに出し直すため）。 */
+async function save($: EngineInterface, fingerprint: string, generated: string[], lastPrompt: string): Promise<void> {
+  try {
+    const at = await $.clock.now()
+    const kept = savedOf(await $.store.get(SAVED_KEY)).filter(item => item.fingerprint !== fingerprint)
+
+    await $.store.set(SAVED_KEY, [{ fingerprint, generated, lastPrompt, at }, ...kept].slice(0, SAVED_LIMIT))
+  } catch {
+    // 保存できなくても候補は出ている。再開したときに出ないだけ。
+  }
+}
+
+/**
+ * 再開したセッションなら、最後に作った候補を読み戻す。会話のいまの位置と保存したときの位置が
+ * 同じときだけ出す（続きの会話が進んでいたら古い候補なので出さない）。
+ */
+async function restore($: EngineInterface, view: View, token: number, generation: () => number): Promise<void> {
+  try {
+    const fingerprint = fingerprintOf((await $.session.messages()) as readonly Message[])
+
+    if (fingerprint === null || token !== generation()) return
+
+    const found = savedOf(await $.store.get(SAVED_KEY)).find(item => item.fingerprint === fingerprint)
+
+    if (found === undefined || token !== generation() || view.phase !== 'idle' || view.isRunning) return
+
+    view.generated = found.generated
+    view.lastPrompt = found.lastPrompt
+    view.phase = 'ready'
+    redraw($)
+  } catch {
+    // 読めなければ出さない。
+  }
 }
 
 /**
@@ -95,6 +156,7 @@ async function generate(
     redraw($)
 
     const messages = (await $.session.messages()) as readonly Message[]
+    const fingerprint = fingerprintOf(messages)
     const transcript = transcriptOf(messages)
     const last = lastUserText(messages) || view.lastPrompt
 
@@ -120,6 +182,8 @@ async function generate(
     view.lastPrompt = last
     view.generated = reply.isAnswered ? parseCandidates(reply.text, settings.count, [last]) : []
     view.phase = 'ready'
+
+    if (fingerprint !== null && view.generated.length > 0) void save($, fingerprint, view.generated, last)
   } catch {
     if (token === generation()) {
       view.generated = []
@@ -170,6 +234,7 @@ export const register: Register = (on, options) => {
     shown: [],
     armed: null,
     isRunning: false,
+    isRestoreTried: false,
   }
   let generation = 0
   let stop: AbortController | null = null
@@ -190,6 +255,7 @@ export const register: Register = (on, options) => {
   on('turn.start', ($, e, next) => {
     reset()
     view.isRunning = true
+    view.isRestoreTried = true
     view.lastPrompt = normalize(e.text)
     redraw($)
 
@@ -227,9 +293,10 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // /clear で会話が変わったら消す。
+  // /clear で会話が変わったら消す。次の会話を再開（/resume）したら、その会話の候補を読み戻しにいく。
   on('session.end', ($, e, next) => {
     reset()
+    view.isRestoreTried = false
     redraw($)
 
     return next(e)
@@ -251,6 +318,12 @@ export const register: Register = (on, options) => {
       view.shown = []
 
       return beneath
+    }
+
+    // 再開したセッションの最初の描画で、保存しておいた候補を読み戻しにいく（待たない）。
+    if (!view.isRestoreTried && view.phase === 'idle' && !view.isRunning && !e.props.isWorking) {
+      view.isRestoreTried = true
+      void restore($, view, generation, () => generation)
     }
 
     // ターン中と候補が無いときも、行そのものは残して薄字だけにする。

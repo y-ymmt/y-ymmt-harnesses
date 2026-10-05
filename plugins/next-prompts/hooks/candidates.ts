@@ -123,18 +123,39 @@ export function lastUserText(messages: readonly Message[]): string {
   return ''
 }
 
+/**
+ * 候補の種類。モデルには種類を 1 つずつ選ばせ、同じ種類は 1 つしか出さない
+ * （言い回しだけ違う同じ依頼が並ばないように）。
+ */
+export const KINDS = ['答える', '進める', '確かめる', '直す', '尋ねる', '片付ける', '別件'] as const
+
+/** モデルに頼む数。重なりを捨てても `count` 個残るよう、少し多めに作らせる。 */
+export const requestCountOf = (count: number): number => Math.min(KINDS.length, count + 2)
+
 /** 候補を作らせるときの system。 */
 export function systemOf(count: number): string {
+  const n = requestCountOf(count)
+
   return [
     'あなたは Claude Code（コーディング用の AI エージェント）の入力補完を担当する。',
     'ユーザーと Claude の会話を読み、ユーザーが次に Claude へ送りそうな依頼文を予測する。',
     '',
+    '出力:',
+    `- ちょうど ${n} 個を、{"kind": 種類, "text": 依頼文} の JSON 配列だけで出力する。前置き・説明・コードフェンスは書かない`,
+    '- 種類は次のどれか。1 つの種類は 1 回だけ使う（同じ種類を 2 つ出さない）',
+    '  - 答える: Claude が最後に出した質問や選択肢への答え',
+    '  - 進める: 今の作業を先へ進める',
+    '  - 確かめる: 結果を見る・試す・テストする',
+    '  - 直す: 方針ややり方を変える・やり直させる',
+    '  - 尋ねる: 理由や仕組みを聞く',
+    '  - 片付ける: コミット・push・後始末',
+    '  - 別件: 会話に出てきた別の話題へ移る',
+    '',
     '規則:',
-    `- ちょうど ${count} 個を、JSON の文字列配列だけで出力する。前置き・説明・コードフェンスは書かない`,
     '- ユーザーの口調に合わせる。日本語の会話なら日本語で、短い依頼文にする（例: 「テストも書いて」「この方針で進めて」「差分を見せて」）',
     '- 1 つ 40 文字以内',
-    '- 直前のユーザーの依頼と同じものは出さない。互いに違う方向の候補にする（先へ進める・確かめる・直す・別の観点 など）',
-    '- Claude が最後に質問や選択肢を出していれば、それへの答えを候補に入れる',
+    '- 直前のユーザーの依頼と同じものは出さない',
+    '- 言い回しだけ違う同じ依頼は出さない。選択肢への答えは、いちばん選ばれそうなもの 1 つだけにする',
   ].join('\n')
 }
 
@@ -147,7 +168,7 @@ export function promptOf(transcript: string, last: string, count: number): strin
     '',
     `直前のユーザーの依頼: ${last === '' ? '（なし）' : `「${clip(last, 200, 0)}」`}`,
     '',
-    `ユーザーが次に送りそうな依頼を ${count} 個、JSON の文字列配列で出力してください。`,
+    `ユーザーが次に送りそうな依頼を ${requestCountOf(count)} 個、種類が重ならないように JSON 配列で出力してください。`,
   ].join('\n')
 }
 
@@ -167,11 +188,57 @@ function keyOf(text: string): string {
 /** 1 つの候補の長さの上限（これを超えるものは壊れた出力とみなして捨てる）。 */
 const MAX_CANDIDATE_CHARS = 200
 
+/** 似ているとみなす重なりの割合（短いほうの 2 文字組のうち、相手にもあるものの割合）。 */
+const SIMILAR = 0.6
+
+/** 2 文字組の集まり。空白・句読点・「番」は見ない（「1 番で」と「1で」を同じに数える）。 */
+function bigramsOf(text: string): Set<string> {
+  const chars = Array.from(keyOf(text).replace(/[\s、。，．,.!！?？「」『』（）()番]/gu, ''))
+  const grams = new Set<string>()
+
+  if (chars.length < 2) {
+    if (chars.length === 1) grams.add(chars[0] as string)
+
+    return grams
+  }
+
+  for (let i = 0; i < chars.length - 1; i += 1) grams.add(`${chars[i]}${chars[i + 1]}`)
+
+  return grams
+}
+
+/** 選択肢の番号を選んでいれば、その番号（「1 番で進めて」「2で作って」→ 1, 2）。 */
+function choiceOf(text: string): string | null {
+  const match = /(?:^|[^0-9０-９])([1-9１-９])\s*(?:番|案|つ目|で|に|を|が)/u.exec(normalize(text))
+
+  return match === null ? null : String((match[1] as string).normalize('NFKC'))
+}
+
+/** 言い回しだけ違う同じ依頼か: 同じ選択肢を選んでいる、または 2 文字組の重なりが大きい。 */
+export function isSimilar(a: string, b: string): boolean {
+  const choice = choiceOf(a)
+
+  if (choice !== null && choice === choiceOf(b)) return true
+
+  const x = bigramsOf(a)
+  const y = bigramsOf(b)
+  const smaller = Math.min(x.size, y.size)
+
+  if (smaller === 0) return false
+
+  let shared = 0
+
+  for (const gram of x) if (y.has(gram)) shared += 1
+
+  return shared / smaller >= SIMILAR
+}
+
 /**
- * 候補を並べ直す: 文字列だけ、均して、空と長すぎるものを捨て、重なりと `exclude` を除き、`count` 個まで。
+ * 候補を並べ直す: 文字列だけ、均して、空と長すぎるものを捨て、重なり・似たもの・`exclude` を除き、`count` 個まで。
+ * 前にあるものほど残る。
  */
 export function uniqueCandidates(items: readonly unknown[], count: number, exclude: readonly string[] = []): string[] {
-  const seen = new Set(exclude.map(keyOf).filter(key => key !== ''))
+  const avoid = exclude.map(normalize).filter(text => keyOf(text) !== '')
   const out: string[] = []
 
   for (const item of items) {
@@ -181,13 +248,23 @@ export function uniqueCandidates(items: readonly unknown[], count: number, exclu
     const text = normalize(item)
     const key = keyOf(text)
 
-    if (key === '' || Array.from(text).length > MAX_CANDIDATE_CHARS || seen.has(key)) continue
+    if (key === '' || Array.from(text).length > MAX_CANDIDATE_CHARS) continue
+    if ([...avoid, ...out].some(other => keyOf(other) === key || isSimilar(other, text))) continue
 
-    seen.add(key)
     out.push(text)
   }
 
   return out
+}
+
+/** モデルの返事の 1 要素から、種類と依頼文を取り出す（文字列だけの古い形も読む）。 */
+function entryOf(item: unknown): { kind: string | null; text: unknown } {
+  if (typeof item === 'string') return { kind: null, text: item }
+  if (typeof item !== 'object' || item === null) return { kind: null, text: null }
+
+  const { kind, text } = item as { kind?: unknown; text?: unknown }
+
+  return { kind: typeof kind === 'string' && kind.trim() !== '' ? kind.trim() : null, text }
 }
 
 /**
@@ -208,7 +285,60 @@ export function parseCandidates(reply: string, count: number, exclude: readonly 
     return []
   }
 
-  return Array.isArray(parsed) ? uniqueCandidates(parsed, count, exclude) : []
+  if (!Array.isArray(parsed)) return []
+
+  // 同じ種類は最初の 1 つだけ。
+  const kinds = new Set<string>()
+  const texts: unknown[] = []
+
+  for (const item of parsed) {
+    const { kind, text } = entryOf(item)
+
+    if (typeof text !== 'string') continue
+    if (kind !== null) {
+      if (kinds.has(kind)) continue
+      kinds.add(kind)
+    }
+
+    texts.push(text)
+  }
+
+  return uniqueCandidates(texts, count, exclude)
+}
+
+/**
+ * 会話のいまの位置を表す指紋（いちばん新しいユーザーの発言と Claude の返事の終わり）。
+ * 再開したセッションで、保存しておいた候補がこの会話の続きのものかを見分けるのに使う。空の会話なら null。
+ */
+export function fingerprintOf(messages: readonly Message[]): string | null {
+  const user = lastUserText(messages)
+  let assistant = ''
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i] as Message
+
+    if (message.role === 'user' && cleanText(message.text ?? '') !== '') break
+    if (message.role === 'assistant') {
+      const text = cleanText(message.text ?? '')
+
+      if (text !== '') {
+        assistant = text
+        break
+      }
+    }
+  }
+
+  if (user === '' && assistant === '') return null
+
+  // FNV-1a（32 ビット）。中身そのものは保存しない。
+  let hash = 0x811c9dc5
+
+  for (const char of `${user}\u0000${Array.from(assistant).slice(-400).join('')}`) {
+    hash ^= char.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+
+  return hash.toString(16).padStart(8, '0')
 }
 
 /** 標準の提案を先頭に足して、重なりと直前の依頼を除く。 */

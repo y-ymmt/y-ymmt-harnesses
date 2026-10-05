@@ -41,7 +41,7 @@ const CONVERSATION: Message[] = [
 ]
 
 /** 偽のエンジン。 */
-function boot(options: Record<string, unknown> = {}) {
+function boot(options: Record<string, unknown> = {}, store: Map<string, unknown> = new Map()) {
   const hooks: { event: string; matcher: Record<string, unknown> | null; hook: Hook }[] = []
   const calls = { complete: [] as Record<string, unknown>[], fills: [] as Record<string, unknown>[], toasts: [] as string[], invalidations: 0 }
   const env = {
@@ -73,6 +73,7 @@ function boot(options: Record<string, unknown> = {}) {
       },
     },
     clock: { now: async () => env.now },
+    store: { get: async (key: string) => store.get(key), set: async (key: string, value: unknown) => void store.set(key, value) },
     ui: {
       resolve: () => ({ Box: 'Box', Text: 'Text', Button: 'Button' }),
       invalidate: () => void (calls.invalidations += 1),
@@ -104,7 +105,7 @@ function boot(options: Record<string, unknown> = {}) {
     emit('ui.press', { plugin: 'next-prompts', element: `${BUTTON_PREFIX}${index}`, component: 'AbovePrompt', requestId: 'band', surface: 'terminal' }, () => ({ element: `${BUTTON_PREFIX}${index}` }))
   const hook = (event: string) => hooks.find(h => h.event === event)?.hook as Hook
 
-  return { $, env, calls, emit, band, startTurn, completeTurn, press, hook, renderEvent }
+  return { $, env, calls, emit, band, startTurn, completeTurn, press, hook, renderEvent, store }
 }
 
 /** 投げっぱなしの候補づくりが終わるまで待つ。 */
@@ -377,6 +378,40 @@ describe('押したとき', () => {
 
     expect(reached).toBe(true)
     expect(tb.calls.fills).toEqual([])
+  })
+})
+
+describe('再開したセッション', () => {
+  test('作った候補を保存し、同じ会話を再開したら最初の描画で出し直す', async () => {
+    const store = new Map<string, unknown>()
+    const first = boot({}, store)
+
+    await first.completeTurn()
+    await settle()
+    expect(candidatesOf(await first.band()).length).toBe(4)
+
+    // claude -c / -r: 新しいプロセスで、同じ会話から始まる
+    const resumed = boot({}, store)
+
+    expect(candidatesOf(await resumed.band()).length, '最初の描画では読み戻しにいくだけ').toBe(0)
+    await settle()
+    expect(candidatesOf(await resumed.band()).map(b => b.props['label'])).toEqual(['テストも追加して', 'コミットして', '差分を見せて', '別の画面も確認して'])
+    expect(resumed.calls.complete, 'モデルは呼ばない').toEqual([])
+  })
+
+  test('会話が先に進んでいたら古い候補は出さない', async () => {
+    const store = new Map<string, unknown>()
+    const first = boot({}, store)
+
+    await first.completeTurn()
+    await settle()
+
+    const resumed = boot({}, store)
+
+    resumed.env.messages = [...CONVERSATION, { role: 'user', text: 'お願い' }, { role: 'assistant', text: '追加しました。' }]
+    await resumed.band()
+    await settle()
+    expect(candidatesOf(await resumed.band()).length).toBe(0)
   })
 })
 
