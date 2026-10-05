@@ -33,7 +33,7 @@
     {
       "name": "next-prompts",
       "description": "ターンが終わるたびに、次に打ちそうな依頼の候補をいくつかプロンプトの上に並べ、押すと入力欄に入れる Mod",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/next-prompts",
       "category": "productivity"

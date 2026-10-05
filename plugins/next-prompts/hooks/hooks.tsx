@@ -24,9 +24,9 @@ import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
 /** プラグイン名。ui.press の持ち主。 */
 const PLUGIN = 'next-prompts'
 
-// ボタンの常時の背景。Button には背景色の指定が無い（文字のスタイルと hover だけ）ので Box で包んで塗る。
-// Claude Code 本体のテーマの色なので、暗い背景でも明るい背景でも文字が読める。ホバーの反転とは別の層。
-// ボタンの下地。テーマの userMessageBackground では薄くて見えなかったので、暗い背景で目立つ濃い灰青にする。
+// ボタンの常時の背景（ホバーの反転とは別の層）。Button には背景色の指定が無い（文字のスタイルと
+// hover だけ）ので Box で包んで塗る。テーマの userMessageBackground では薄くて見えなかったので、
+// 暗い背景で目立つ濃い灰青にする。
 const CHIP_BACK = '#4b5470'
 
 /** 候補ボタンの key の頭（後ろに位置の番号を付ける）。 */
@@ -52,7 +52,6 @@ const TIMEOUT_MS = 20_000
 
 /** 打ちかけの文があるとき、2 回目の押し込みを待つ時間。 */
 export const CONFIRM_MS = 5_000
-
 
 /** 帯の状態。描き直しのたびに読む（モジュール変数: 読み込み直しで消えてよい一時的なもの）。 */
 type View = {

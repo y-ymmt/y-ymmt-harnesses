@@ -347,15 +347,6 @@ export function mergeCandidates(suggestion: string | null, generated: readonly s
   return uniqueCandidates(suggestion === null ? generated : [suggestion, ...generated], count, [last])
 }
 
-/**
- * 押された数字（半角・全角の 1〜9）を 1 始まりの番号にする。数字 1 文字でなければ null。
- */
-export function digitOf(text: string): number | null {
-  const match = /^[1-9１-９]$/u.exec(text)
-
-  return match === null ? null : Number(text.normalize('NFKC'))
-}
-
 /** 端末で 2 セル使う文字か（CJK・全角・絵文字のおおまかな範囲）。 */
 function isWide(code: number): boolean {
   return (
@@ -432,7 +423,7 @@ export function layoutLabels(
   let used = cellWidth(HEADING)
 
   for (const [index, text] of candidates.entries()) {
-    // 番号つきなら頭に `1 ` を付ける（数字キー 2 回で選べる候補は 9 番まで）。
+    // 番号つきなら頭に `1 ` を付ける（`/番号 + 空白` で選べる候補は 9 番まで）。
     const label = isNumbered && index < 9 ? `${index + 1} ${truncateLabel(text, limit)}` : truncateLabel(text, limit)
     const width = cellWidth(label) + BUTTON_CHROME
 
