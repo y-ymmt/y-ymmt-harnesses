@@ -25,6 +25,39 @@ claude plugin install reply-prism@y-ymmt-harnesses
 
 各プラグインの設定と仕組みは `plugins/<name>/README.md` を参照。
 
+## 動作環境と確かめた範囲
+
+作者が実機で確かめたのは **macOS・端末 Orca・Claude Code の全画面表示（fullscreen）・Claude Code 2.1.289** の組み合わせだけ。
+それ以外は、コードを読んでの見立てか、偽の `$` を使ったテストまで。各プラグインの表は次の節にある。
+
+- [turn-counter](plugins/turn-counter/README.md#動作環境と確かめた範囲)
+- [tokyo-board](plugins/tokyo-board/README.md#動作環境と確かめた範囲)
+- [touch-tree](plugins/touch-tree/README.md#動作環境と確かめた範囲)
+- [next-prompts](plugins/next-prompts/README.md#動作環境と確かめた範囲)
+- [reply-prism](plugins/reply-prism/README.md#動作環境と確かめた範囲)
+
+表の「状態」の意味:
+
+| 状態 | 意味 |
+|---|---|
+| 確認済み | 作者の環境で実際に使って確かめた |
+| たぶん動く | その環境に依るコードが無いので動くと見ているが、実機では見ていない |
+| 未確認 | 動くかどうかコードからは決められず、試してもいない |
+| 未対応 | 動かない、またはわざと何もしない（その理由は補足に書く） |
+
+どのプラグインにも共通すること:
+
+- **表示の言葉は日本語だけ**。英語などへの切り替えは無い
+- **クリック**: ボタンをクリックで押せるのは全画面表示の端末だけ（Claude Code がクリックを Mod に渡すのはそのときだけ）。
+  全画面表示でないときは ctrl+x tab でボタンのある場所に移り、Tab と Enter で押す
+- **リンク**: Orca の全画面表示では、`Link` の `https://` はクリックで開いたが、`vscode://` はクリックでも cmd+クリックでも開かなかった。
+  そのため touch-tree と reply-prism は、ボタンを押すと `open`（無ければ `xdg-open`）に URL を渡して開くようにしている。
+  **Windows 用の開き方は無い**
+- **文字の幅**: 全角は 2 桁、罫線や `●` `■` `▲` などは 1 桁として桁を揃えている。曖昧な幅の文字を 2 桁で描く設定の端末では桁がずれる（推測）
+- **表示面**: 帯・スピナー・リンクは端末（`e.surface === 'terminal'`）を前提にしている。デスクトップアプリ・VS Code 拡張・モバイルでの見た目は作者は確かめていない
+- **Claude Code の版**: 確かめたのは 2.1.289。2.1.281 では帯のボタンの当たり判定がずれる不具合が出たことがあり、
+  帯にあった Clawd の `Client` 要素を消すと直った。原因は分かっていない
+
 ## プロンプト上の帯の表示順
 
 `tokyo-board`・`touch-tree`・`next-prompts` は、プロンプトの上の帯（`AbovePrompt`）を共有して描く。
