@@ -148,6 +148,11 @@ async function start($: EngineInterface, board: Board): Promise<void> {
 /** ボードを出し入れするボタンの key。帯のいちばん下に固定で置く。 */
 const TOGGLE_BUTTON = 'board-toggle'
 
+// ボタンの常時の背景。Button には背景色の指定が無い（文字のスタイルと hover だけ）ので Box で包んで塗る。
+// Claude Code 本体のテーマの色なので、暗い背景でも明るい背景でも文字が読める。ホバーの反転とは別の層。
+// ボタンの下地。テーマの userMessageBackground では薄くて見えなかったので、暗い背景で目立つ濃い灰青にする。
+const CHIP_BACK = '#4b5470'
+
 /** 時間帯の出入りを見直す間隔（ミリ秒）。 */
 const WINDOW_CHECK_MS = 30_000
 
@@ -754,12 +759,14 @@ export const register: Register = (on, options) => {
     const visible = isVisible(board) && PANEL_ROWS + 1 <= e.props.maxRows
     const toggle = (
       <Box key={slotKey(BAND_ORDER.boardToggle, 'tokyo-board-toggle')} flexDirection="row">
-        <Button
-          key={TOGGLE_BUTTON}
-          label={visible ? '天気・運行を隠す' : '天気・運行を表示'}
-          dimColor
-          onPress={pressToggle}
-        />
+        <Box key={`${TOGGLE_BUTTON}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
+          <Button
+            key={TOGGLE_BUTTON}
+            label={visible ? '天気・運行を隠す' : '天気・運行を表示'}
+            dimColor
+            onPress={pressToggle}
+          />
+        </Box>
       </Box>
     )
 

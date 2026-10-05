@@ -86,6 +86,15 @@ async function boot($: Engine, on: On, hour: number, options: BootOptions = {}) 
   return { clock, stored, fetched }
 }
 
+test('出し入れのボタンは、ホバーしていないときも背景色のある Box に包まれる', async ($, on) => {
+  await boot($, on, 18)
+  const ui = await $.ui.mount(BAND)
+
+  const chips = (await ui.findAll({ type: 'Box' })).filter(box => box.key === `${TOGGLE}.chip`)
+  expect(chips).toHaveLength(1)
+  expect(chips[0]?.props['backgroundColor']).toBe('#4b5470')
+})
+
 test('時間帯の中: ボードの下に「天気・運行を隠す」が 1 つ。押すとボードが消えて「表示」に変わり、押すと戻る', async ($, on) => {
   const tb = await boot($, on, 18)
   const ui = await $.ui.mount(BAND)
