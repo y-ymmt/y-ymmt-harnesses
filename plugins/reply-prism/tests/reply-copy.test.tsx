@@ -22,6 +22,8 @@ import {
   toReplySlackPlain,
 } from '../hooks/reply'
 
+declare function setTimeout(fn: (value?: unknown) => void, ms: number): unknown
+
 type Dollar = Parameters<TestBody>[0]
 
 // ---------------------------------------------------------------------------
@@ -463,6 +465,19 @@ describe('返事まるごとコピー: 返事の最後の「コピー:」の行'
     await ui.press({ key: 'replycopy.slack' })
     expect(copied).toEqual(['a\tb\n1\t2', '見る: src/app.ts:3\n\n```\na  b\n-  -\n1  2\n```\n\n```\nls\n```'])
     await ui.unmount()
+  })
+
+  test('会話が書き換わったら（/rewind・/compact・再開）、覚えていた会話を捨てて読み直す', async ($, on) => {
+    const state = transcript(on, ROWS)
+    const ui = await $.ui.mount(block(LAST))
+    expect(await rowButtons(ui)).toHaveLength(4)
+    await ui.unmount()
+    // その返事ごと巻き戻された。覚えの有効な間隔を過ぎたら、同じ文でも出さない。
+    state.rows = [{ role: 'user', text: 'ログを調べて' }, { role: 'assistant', text: '別の返事' }]
+    await new Promise(done => setTimeout(done, 1100))
+    const again = await $.ui.mount(block(LAST, 'terminal', 'msg-2'))
+    expect(await rowButtons(again)).toHaveLength(0)
+    await again.unmount()
   })
 
   test('copyButtons: false でも出す（表・コードのコピーボタンだけ消える）', { options: { copyButtons: false } }, async ($, on) => {

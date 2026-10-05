@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "reply-prism",
-  "version": "0.3.0",
-  "description": "返事の表・コード・図・ツール行を色つきで描き、パスのリンク・表のコピー形式と並べ替え・長いブロックの折りたたみ・危ない語の強調を足した Mod（prismantis の改変版）",
+  "version": "0.3.1",
+  "description": "返事の表・コード・図・ツール行を色つきで描き、パスのリンク・表のコピー形式と並べ替え・長いブロックの折りたたみ・危ない語と ==…== の強調・返事まるごとコピー・ボタンの下地を足した Mod（prismantis の改変版）",
   "author": {
     "name": "y-ymmt"
   },

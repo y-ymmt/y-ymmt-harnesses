@@ -10,11 +10,11 @@ export const FALLBACK_CHIP_BACK = 'userMessageBackground'
 
 export const chipBack = (style: Style): string => style.theme.tableRule ?? style.theme.rule ?? FALLBACK_CHIP_BACK
 
-/** ボタン（や、押せる文字）に常時の背景を敷く。key は Button 自身のものと別（`<key>.chip`）にする。 */
+/** ボタン（や、押せる文字）に常時の背景を敷く。高さのある行に置いても伸びないよう alignSelf は flex-start（ボタン 1 行ぶんだけ塗る）。key は Button 自身のものと別（`<key>.chip`）にする。 */
 export const chip = (el: ElementTable, style: Style, key: string, button: RenderElement): RenderElement => {
   const { Box } = el
   return (
-    <Box key={`${key}.chip`} flexShrink={0} backgroundColor={chipBack(style)}>
+    <Box key={`${key}.chip`} flexShrink={0} alignSelf="flex-start" backgroundColor={chipBack(style)}>
       {button}
     </Box>
   )

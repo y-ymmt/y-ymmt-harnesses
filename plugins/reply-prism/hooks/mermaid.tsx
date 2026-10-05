@@ -11,9 +11,9 @@ const textCache = new Map<string, string | null>()
 export const chartSize = (columns: number, source = '') => {
   const labels = (/^\s*x-axis\b[^[\n]*\[([^\]\n]*)\]/m.exec(source)?.[1] ?? '').split(',').map(s => s.trim().replace(/^"|"$/g, ''))
   const fit = labels.length * (Math.max(...labels.map(l => l.length)) + 2)
-  const width = Math.max(24, Math.min(60, Math.max(Math.floor(columns / 6), fit), columns - 12))
-  const base = Math.max(8, Math.min(20, Math.round(width * 0.3)))
-  return { width, height: source === '' ? base : evenHeight(source, base) }
+  const chartWidth = Math.max(24, Math.min(60, Math.max(Math.floor(columns / 6), fit), columns - 12))
+  const base = Math.max(8, Math.min(20, Math.round(chartWidth * 0.3)))
+  return { width: chartWidth, height: source === '' ? base : evenHeight(source, base) }
 }
 
 // reply-prism: 縦軸の目盛りは値を行に丸めて置くので、グラフの高さによっては 2 つの目盛りが同じ行に重なって

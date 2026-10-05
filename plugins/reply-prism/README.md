@@ -4,14 +4,21 @@ Claude Code の返事（表・コード・Mermaid の図・ツール行・コマ
 Claude Code プラグイン（function hooks）。
 
 **[prismantis](https://github.com/NahumLitvin/prismantis)（作者 [Nahum Litvin](https://github.com/NahumLitvin)、MIT ライセンス）を元にした改変版**で、
-コミット `b13de6c9ec39e01946943f67b07e5fae4aefd939`（2026-10-04、prismantis 0.6.0）を取り込み、次の 6 つを足している。
+コミット `b13de6c9ec39e01946943f67b07e5fae4aefd939`（2026-10-04、prismantis 0.6.0）を取り込み、次の 6 つの機能を足し、本家の描き方も 4 か所直している。
 
 1. ファイルパスをエディタで開く（押して開くボタンと、cmd+クリックで開くリンク）
 2. 表のコピー形式を選べる（Markdown・TSV・Slack）
-3. 危ない語（`本番` `DELETE` `rm -rf` など）と、Claude が `==…==` で囲んだ注意箇所を赤背景で目立たせる
+3. 危ない語（`本番` `DELETE` `rm -rf` など）と、Claude が `==…==` で囲んだ注意箇所を赤背景で目立たせる（`==…==` の描き・コピー・注記はこの機能に含む）
 4. 長い表・コードブロックを畳む
 5. 表を列で並べ替える
 6. 返事まるごとコピー（貼り先ごとの形: Markdown・GitHub・Slack・Notion）
+
+本家の描き方を直したところ:
+
+- ボタンの下地（`hooks/chip.tsx`）: ホバーしていないときも背景色を敷く。高さのある行（折り返した見出しなど）でも伸びない
+- Mermaid: 全角文字の幅と、`xychart-beta` の縦軸の目盛りが重ならない高さの選び方（`hooks/mermaid.tsx`）
+- ツール行: Read/Edit/Write のパスをボタンにし、開いた Bash の呼び出しは専用の形で描く（`hooks/render.tsx`・`hooks/register.tsx`）
+- 表の並べ替えボタン（⇅）のある見出しは、狭い列でも折り返さず末尾を切る
 
 ボタン・トースト・コマンドの返事・`/config` の項目名は日本語にした。ツール行の動詞（`Ran` `Read` `Edited`）と
 ターンの終わりの行は、Claude Code 自身の表示に合わせて英語のまま。
@@ -300,7 +307,7 @@ macOS 以外（文字だけ）では次の mrkdwn が入る:
 
 ## 本家から引き継いだ機能
 
-本家の README（英語）に詳しい。ボタンの文言を日本語にしたほかは、下に書いた Mermaid の全角対応だけを直した。
+本家の README（英語）に詳しい。ボタンの文言を日本語にしたほかは、下に書いた Mermaid の全角対応・縦軸と、上の「直したところ」を変えた。
 
 - 15 のテーマ（`/reply-prism theme <name>`）と `mono`、20 の色の項目
 - 表（見出しの色・罫線・寄せ・数の色・幅合わせ）、見出しの 4 つの形、入れ子のリスト、引用、GitHub の囲み（`> [!NOTE]` など）
@@ -430,11 +437,13 @@ macOS 以外（文字だけ）では次の mrkdwn が入る:
 .claude-plugin/plugin.json   manifest（userConfig・types）                       改変（名前・作者・日本語の項目・足した設定）
 hooks/hooks.json             modules: ["./register.tsx"]                         本家のまま
 hooks/register.tsx           フックと `$` を使う処理すべて                        改変（下の「足したもの」）
-hooks/render.tsx             ブロック → Box/Text の木                             改変（危ない語と注意箇所・リンク・開くボタン・畳む・並べ替え・形式別コピー）
+hooks/render.tsx             ブロック → Box/Text の木                             改変（危ない語と注意箇所・リンク・開くボタン・畳む・並べ替え・形式別コピー・ツール行）
 hooks/markdown.ts            Markdown → ブロック                                  改変（相対パスの検出、表のセルの元の書き方、`==…==` の注意箇所）
 hooks/theme.ts               設定の読み込み                                        改変（足した設定）
 hooks/help.ts                /reply-prism の画面                                  改変（日本語化・足した機能の見本）
-hooks/presets.ts mermaid.tsx  テーマ・図                                       本家のまま
+hooks/presets.ts             テーマ                                               本家のまま
+hooks/mermaid.tsx            Mermaid の図                                         改変（全角文字の幅・縦軸の目盛りに合わせた高さ・図の大きさ）
+hooks/chip.tsx               ボタンの下地（常時の背景）                           独自
 hooks/rtl.ts                 右から左                                             改変（注意箇所の節を太字などと同じに扱うだけ）
 hooks/vendor/                Prism・beautiful-mermaid の同梱版                    本家のまま（scripts/ で作り直せる）
 hooks/paths.ts               パスの検出・絶対化・エディタの URL・開くボタンの key  独自
@@ -446,7 +455,7 @@ hooks/clipboard.ts           書式付きコピーの JXA と argv（macOS の�
 hooks/width.ts               表示幅                                               本家 render.tsx から切り出し（中身は同じ）
 types/index.d.ts             $.state の契約（reply-prism.view・reply-prism.turn）  独自
 tests/reply-prism.test.tsx   足した 1〜5 の機能のテスト                           独自
-tests/reply-copy.test.tsx    返事まるごとコピーのテスト                            独自
+tests/reply-copy.test.tsx    返事まるごとコピー（変換・「コピー:」の行・書式付きコピー・会話の覚え）のテスト  独自
 tests/*.test.tsx（他）       本家のテスト                                          改変（名前・ボタンの文言・ボタンの数・ツール行のパス）
 scripts/                     hooks/vendor を作り直すスクリプト                    本家のまま（package.json の名前と不要なスクリプトだけ変更）
 docs/demo.md                 本家の見本の返事                                      本家のまま
@@ -462,7 +471,7 @@ LICENSE THIRD_PARTY_NOTICES.md  本家の MIT ライセンスと同梱物の表�
 ## テスト・確認
 
 ```sh
-claude plugin test plugins/reply-prism                 # 本家のテスト 111 件と、足した機能のテスト
+claude plugin test plugins/reply-prism                 # 全 7 ファイル・230 件（本家のテストと、足した機能のテスト）
 claude plugin validate plugins/reply-prism --strict
 ```
 

@@ -316,17 +316,29 @@ export const codeLine = (el: ElementTable, style: Style, line: string, lang: str
   )
 }
 
-const columnWidths = (natural: number[], available: number, gap: number): number[] => {
+/**
+ * 横幅に収まらない表の列幅。reply-prism: 本家は全列を比例で縮めていたが、それだと短い列
+ * （見出しや `prompt-trail` のような名前）まで切れて折り返す。ここでは長い列だけを同じ上限まで縮め、
+ * 上限より短い列は元の幅のまま残す。
+ */
+export const columnWidths = (natural: readonly number[], available: number, gap: number): number[] => {
   const room = Math.max(natural.length, available - gap * (natural.length - 1))
-  const total = natural.reduce((a, b) => a + b, 0)
-  if (total <= room) return natural
-  const widths = natural.map(w => Math.max(1, Math.floor((w * room) / total)))
-  while (widths.reduce((a, b) => a + b, 0) > room) {
-    const widest = widths.indexOf(Math.max(...widths))
-    if (widths[widest]! <= 1) break
-    widths[widest]!--
+  const sumAt = (cap: number) => natural.reduce((a, w) => a + Math.min(w, cap), 0)
+  if (sumAt(Infinity) <= room) return [...natural]
+  // 全列の合計が room に収まる、いちばん大きい上限を探す。
+  let cap = 1
+  for (let lo = 1, hi = Math.max(...natural); lo <= hi; ) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (sumAt(mid) <= room) { cap = mid; lo = mid + 1 } else hi = mid - 1
   }
-  return widths
+  // 上限で切った列に、余りを 1 字ずつ左から配る（余りは切った列の数より少ない）。
+  let spare = room - sumAt(cap)
+  return natural.map(w => {
+    if (w <= cap) return w
+    if (spare <= 0) return cap
+    spare--
+    return cap + 1
+  })
 }
 
 const displayText = (inline: Inline[]): string =>
@@ -408,7 +420,8 @@ const renderTable = (el: ElementTable, style: Style, block: Extract<Block, { kin
   )
 
   const headerCell = (c: number, content: Inline[]) => {
-    const label = <Text bold color={t.tableHeader}>{inlineText(content)}</Text>
+    // 並べ替えのある見出しは、狭い列でも折り返さず（行が高くならないよう）末尾を切って、⇅ を後ろに残す。
+    const label = <Text bold color={t.tableHeader} {...(isSortable && controls ? { wrap: 'truncate-end' as const } : {})}>{inlineText(content)}</Text>
     if (!isSortable || !controls) return label
     const dir = view.sortCol === c ? view.sortDir : undefined
     return (

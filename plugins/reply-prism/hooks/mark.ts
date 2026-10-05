@@ -27,26 +27,27 @@ export const findMarks = (line: string): MarkRange[] => {
   return [...masked.matchAll(MARK)].map(m => ({ start: m.index, end: m.index + m[0].length }))
 }
 
-const replaceMarks = (line: string, open: string, close: string): string => {
+/** 1 行の印（`==x==`）それぞれを `wrap(x)` に置き換える。 */
+const replaceMarks = (line: string, wrap: (inner: string) => string): string => {
   const marks = findMarks(line)
   if (marks.length === 0) return line
   let out = ''
   let at = 0
   for (const m of marks) {
-    out += line.slice(at, m.start) + open + line.slice(m.start + 2, m.end - 2) + close
+    out += line.slice(at, m.start) + wrap(line.slice(m.start + 2, m.end - 2))
     at = m.end
   }
   return out + line.slice(at)
 }
 
 /** 1 行の印を私用領域の 2 文字に置き換える（markdown.ts が読む）。 */
-export const markLine = (line: string): string => replaceMarks(line, MARK_OPEN, MARK_CLOSE)
+export const markLine = (line: string): string => replaceMarks(line, inner => MARK_OPEN + inner + MARK_CLOSE)
 
 /** 行ごとに印を置き換える。 */
 export const markLines = (text: string): string => (text.includes('==') ? text.split('\n').map(markLine).join('\n') : text)
 
 /** 1 行から印（`==`）を外す。中身は残す。 */
-export const stripLine = (line: string): string => replaceMarks(line, '', '')
+export const stripLine = (line: string): string => replaceMarks(line, inner => inner)
 
 /** 行ごとに印を外す（リスト・引用のコピー用）。 */
 export const stripMarks = (text: string): string => (text.includes('==') ? text.split('\n').map(stripLine).join('\n') : text)
@@ -61,18 +62,7 @@ export const stripTable = (text: string): string =>
  */
 export const rewriteMarks = (line: string, wrap: string): string => {
   if (!line.includes('==')) return line
-  const one = (part: string): string => {
-    const marks = findMarks(part)
-    if (marks.length === 0) return part
-    let out = ''
-    let at = 0
-    for (const m of marks) {
-      const inner = part.slice(m.start + 2, m.end - 2)
-      out += part.slice(at, m.start) + (wrap && !inner.includes(wrap) ? wrap + inner + wrap : inner)
-      at = m.end
-    }
-    return out + part.slice(at)
-  }
+  const one = (part: string): string => replaceMarks(part, inner => (wrap && !inner.includes(wrap) ? wrap + inner + wrap : inner))
   return /^\s*\|/.test(line) ? line.split(/((?<!\\)\|)/).map(one).join('') : one(line)
 }
 

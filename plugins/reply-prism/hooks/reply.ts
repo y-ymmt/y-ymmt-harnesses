@@ -333,16 +333,16 @@ const htmlBlock = (block: Block): string => {
 }
 
 /**
- * Slack に貼る HTML: 見出しは太字の段落、`<b>` `<i>` `<s>` `<code>`、コードブロックは言語名なしの `<pre>`（mermaid もソース）、
- * リンクは `<a href>`、リストは入れ子の `<ul>` `<ol>`、引用は `<blockquote>`、囲みは絵文字と太字のラベルつきの引用、
- * 表は桁を揃えた `<pre>`、印は太字。文字はすべてエスケープする。
- */
-/**
  * ブロックの間に挟む空行。Slack は貼られた HTML の段落の余白を詰め、隣り合う `<pre>` どうし・`<blockquote>` どうしを
  * 1 つにまとめてしまうので、空の段落で区切る（表とコード、囲みと引用が混ざらないように）。
  */
 export const SLACK_BLOCK_GAP = '<p><br></p>'
 
+/**
+ * Slack に貼る HTML: 見出しは太字の段落、`<b>` `<i>` `<s>` `<code>`、コードブロックは言語名なしの `<pre>`（mermaid もソース）、
+ * リンクは `<a href>`、リストは入れ子の `<ul>` `<ol>`、引用は `<blockquote>`、囲みは絵文字と太字のラベルつきの引用、
+ * 表は桁を揃えた `<pre>`、印は太字。文字はすべてエスケープする。
+ */
 export const toReplySlackHtml = (source: string): string => parse(source, NO_HIGHLIGHT).map(htmlBlock).join(SLACK_BLOCK_GAP)
 
 const plainLines = (lines: readonly string[], prefix = ''): string =>

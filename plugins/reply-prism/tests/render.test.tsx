@@ -228,6 +228,8 @@ test('every button sits on a resting background taken from the theme', async ($,
   expect(chips.length).toBe(buttons.length)
   // 常時の背景は罫線の色（既定は catppuccin-mocha）。ホバーの反転とは別の層なので hover は付けない。
   expect(new Set(chips.map(c => c.props.backgroundColor))).toEqual(new Set([PRESETS['catppuccin-mocha'].tableRule]))
+  // 高さのある行（折り返した見出しなど）に置いても、下地は伸びずボタン 1 行ぶんだけ塗る。
+  expect(chips.every(c => c.props.alignSelf === 'flex-start')).toBe(true)
   await ui.unmount()
 })
 
@@ -298,4 +300,12 @@ test('fence languages that name Prism internals fall back to plain code', async 
     expect((await ui.find({ type: 'Text', text: /^hello$/ }))?.props.color).toBe(PRESETS['catppuccin-mocha'].codeText)
     await ui.unmount()
   }
+})
+
+test('a sortable header that is too narrow to fit its label does not wrap into a tall row', async $ => {
+  const ui = await $.ui.mount({ ...draw('| 担当者名 | 件数 |\n| --- | ---: |\n| あ | 1 |\n| い | 2 |'), surface: 'terminal', viewport: { columns: 14, rows: 40 } })
+  const headers = (await ui.findAll({ type: 'Text' })).filter(t => t.props.bold === true)
+  expect(headers.length).toBeGreaterThan(0)
+  expect(headers.every(t => t.props.wrap === 'truncate-end')).toBe(true)
+  await ui.unmount()
 })

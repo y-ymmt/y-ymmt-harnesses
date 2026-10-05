@@ -13,6 +13,7 @@ import { editorUrl, isPathLike, openKey, openLabel, parseOpenKey, resolvePath, s
 import { columnKind, nextSort, parseDate, parseNumber, sortOrder, toMarkdown, toSlack, toTsv } from '../hooks/table'
 import { mermaidText } from '../hooks/mermaid'
 import { width } from '../hooks/width'
+import { EXISTS_LIMIT, existingFiles, makeExpandedCalls, type ExistsCache } from '../hooks/register'
 
 type Dollar = Parameters<TestBody>[0]
 
@@ -795,6 +796,38 @@ describe('8. 押してエディタで開くボタン', () => {
     await ui.unmount()
   })
 
+  /** `open` / `xdg-open` が 0 以外の終了コードで終わる（コマンドはある）。`codes` に無いコマンドは 0。 */
+  const failingRuns = (on: On, codes: Record<string, number>) => {
+    const runs: string[][] = []
+    on('process.run', (_, e) => {
+      runs.push([...e.argv])
+      return { value: { exitCode: codes[e.argv[0]!] ?? 0, stdout: '', stderr: `${e.argv[0]} failed`, isStdoutTruncated: false, isStderrTruncated: false } }
+    })
+    return runs
+  }
+
+  test('open が終了コード 0 以外で失敗したら xdg-open も試す', async ($, on) => {
+    const runs = failingRuns(on, { open: 1 })
+    const toasts = captureToasts(on)
+    await start($, on)
+    const ui = await $.ui.mount(reply('見る: /tmp/app.ts:3'))
+    await ui.press({ key: 'open:3:0:/tmp/app.ts' })
+    expect(runs.map(r => r[0])).toEqual(['open', 'xdg-open'])
+    expect(toasts).toEqual([])
+    await ui.unmount()
+  })
+
+  test('どちらも終了コード 0 以外なら、最後のエラーでトーストする', async ($, on) => {
+    const runs = failingRuns(on, { open: 1, 'xdg-open': 3 })
+    const toasts = captureToasts(on)
+    await start($, on)
+    const ui = await $.ui.mount(reply('見る: /tmp/app.ts:3'))
+    await ui.press({ key: 'open:3:0:/tmp/app.ts' })
+    expect(runs.map(r => r[0])).toEqual(['open', 'xdg-open'])
+    expect(toasts).toEqual(['開けませんでした: xdg-open failed'])
+    await ui.unmount()
+  })
+
   test('他のボタン（コピー・並べ替え）は今まで通りで、エディタを開かない', async ($, on) => {
     const runs = captureRuns(on)
     const copied = captureCopies(on)
@@ -806,5 +839,24 @@ describe('8. 押してエディタで開くボタン', () => {
     expect(runs).toEqual([])
     expect((await opens(ui)).map(b => b.props.label)).toEqual(['b.ts', 'a.ts'])
     await ui.unmount()
+  })
+})
+
+describe('上限つきの覚え', () => {
+  test('開いたツール呼び出しの id は上限を超えたら古いものから忘れる', () => {
+    const calls = makeExpandedCalls(3)
+    for (const id of ['a', 'b', 'c', 'd']) calls.add(id)
+    expect(calls.size).toBe(3)
+    expect(calls.has('a')).toBe(false)
+    expect(['b', 'c', 'd'].every(id => calls.has(id))).toBe(true)
+  })
+
+  test('ファイルの有無の覚えは上限を超えて増えない', async ($, on) => {
+    on('fs.exists', () => ({ value: true }))
+    const cache: ExistsCache = new Map()
+    const paths = Array.from({ length: EXISTS_LIMIT + 50 }, (_, i) => `/p/${i}`)
+    const found = await existingFiles($, cache, paths)
+    expect(found.size).toBe(paths.length)
+    expect(cache.size).toBeLessThanOrEqual(EXISTS_LIMIT)
   })
 })

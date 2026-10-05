@@ -77,7 +77,24 @@ const learnWhere = async ($: EngineInterface, where: { cwd: string; home: string
   where.home = (await $.env.get('HOME').catch(() => undefined)) ?? where.home
 }
 
-const expandedCalls = new Set<string>()
+/** 開いたツール呼び出しの id を覚える数の上限。古いものから忘れる（長いセッションで増え続けないように）。 */
+const EXPANDED_LIMIT = 1000
+
+/** 上限つきで id を覚える。register のクロージャに 1 つ作る（セッション・Mod の読み込みごとに別）。 */
+export const makeExpandedCalls = (limit = EXPANDED_LIMIT) => {
+  const seen = new Set<string>()
+  return {
+    add: (id: string) => {
+      seen.delete(id)
+      seen.add(id)
+      if (seen.size > limit) seen.delete(seen.values().next().value!)
+    },
+    has: (id: string) => seen.has(id),
+    get size() {
+      return seen.size
+    },
+  }
+}
 
 /**
  * ファイルをエディタで開く。URL を macOS は open、それ以外は xdg-open に渡す。開けなければトーストで知らせる。
@@ -86,15 +103,20 @@ const expandedCalls = new Set<string>()
 const openInEditor = async ($: EngineInterface, style: Style, target: OpenTarget): Promise<void> => {
   const url = editorUrl(style.editor, style.editorUrlTemplate, target.abs, target.line, target.col)
   if (url === undefined) return
+  let lastError = ''
   for (const opener of ['open', 'xdg-open']) {
     try {
       const { exitCode, stderr } = await $.process.run([opener, url], { timeoutMs: 10_000 })
       if (exitCode === 0) return
-      $.ui.toast(`開けませんでした: ${stderr.trim().split('\n')[0] ?? ''}`.trim(), { timeoutMs: 5_000 })
-      return
+      // 失敗したら、次のコマンドも試す（macOS 以外では open が別物のことがある）。
+      lastError = stderr.trim().split('\n')[0] ?? ''
     } catch {
       // このコマンドが無い。次を試す。
     }
+  }
+  if (lastError) {
+    $.ui.toast(`開けませんでした: ${lastError}`.trim(), { timeoutMs: 5_000 })
+    return
   }
   $.ui.toast('ファイルを開くコマンド（open / xdg-open）が見つかりません', { timeoutMs: 5_000 })
 }
@@ -164,20 +186,30 @@ const makeCopy = ($: EngineInterface, el: ReturnType<EngineInterface['ui']['reso
 // 描画には自分のテキストブロックの文しか来ない（`isFirstOfReply` もツール呼び出しの後のブロックごとに true になる）ので、
 // 会話を読んで、そのブロックが入る返事と、それが返事の最後のテキストブロックかを決める。
 // 会話は描画のたびに読むと重いので、ターンの始めと終わりまで使い回す（ブロックが見つからなければ 1 秒おきに読み直す）。
-let transcript: { at: number; rows: Promise<readonly TranscriptRow[]> } | undefined
+type TranscriptCache = { current?: { at: number; rows: readonly TranscriptRow[] } }
 
-const readTranscript = ($: EngineInterface, fresh = false): Promise<readonly TranscriptRow[]> => {
+/** 会話の記録を読み直すまでの間隔。間隔ごとに読み直し、行数か最後の行が変わっていたら（/compact・/rewind・再開）覚えを捨てる。 */
+const TRANSCRIPT_TTL_MS = 1000
+
+const rowsSignature = (rows: readonly TranscriptRow[]): string => {
+  const last = rows[rows.length - 1]
+  return `${rows.length}\0${last?.role ?? ''}\0${last?.text ?? ''}`
+}
+
+const readTranscript = async ($: EngineInterface, cache: TranscriptCache): Promise<readonly TranscriptRow[]> => {
   const now = Date.now()
-  if (!transcript || (fresh && now - transcript.at >= 1000)) {
-    transcript = { at: now, rows: $.session.messages().then(rows => (Array.isArray(rows) ? rows : []), () => []) }
-  }
-  return transcript.rows
+  const hit = cache.current
+  if (hit && now - hit.at < TRANSCRIPT_TTL_MS) return hit.rows
+  const rows = await $.session.messages().then(r => (Array.isArray(r) ? r : []), () => [] as TranscriptRow[])
+  // 変わっていなければ、同じ配列を使い回す（splitReplies の覚えが効く）。
+  cache.current = { at: now, rows: hit && rowsSignature(hit.rows) === rowsSignature(rows) ? hit.rows : rows }
+  return cache.current.rows
 }
 
 /** このブロックの下に「コピー:」の行を出すなら、その返事のテキストブロックの文。出さないなら undefined。 */
-const replyTexts = async ($: EngineInterface, style: Style, text: string): Promise<string[] | undefined> => {
+const replyTexts = async ($: EngineInterface, style: Style, cache: TranscriptCache, text: string): Promise<string[] | undefined> => {
   if (!style.replyCopy) return undefined
-  const found = findReply(await readTranscript($), text) ?? findReply(await readTranscript($, true), text)
+  const found = findReply(await readTranscript($, cache), text)
   // 会話の最後の返事はターンが終わるまで続きが来るかもしれない。そのブロックと見つからないブロックはターンの状態を読み、
   // ターンの始めと終わりに描き直させる（返事が終わってから、最後のテキストブロックの下にだけ出る）。古い返事は読まない。
   if (!found || found.isLatest) {
@@ -227,14 +259,15 @@ const readControls = async ($: EngineInterface, e: { requestId: string }, blocks
 
 /** 「開く:」の行に出すファイルが実在するか。描き直しのたびに調べないよう、パスごとに少しの間覚えておく。 */
 const EXISTS_TTL_MS = 5_000
-const existsCache = new Map<string, { exists: boolean; at: number }>()
+export const EXISTS_LIMIT = 500
+export type ExistsCache = Map<string, { exists: boolean; at: number }>
 
-async function existingFiles($: EngineInterface, paths: readonly string[]): Promise<Map<string, boolean>> {
+export async function existingFiles($: EngineInterface, cache: ExistsCache, paths: readonly string[]): Promise<Map<string, boolean>> {
   const now = Date.now()
   const out = new Map<string, boolean>()
   await Promise.all(
     [...new Set(paths)].map(async abs => {
-      const hit = existsCache.get(abs)
+      const hit = cache.get(abs)
       if (hit && now - hit.at < EXISTS_TTL_MS) return void out.set(abs, hit.exists)
       let exists = false
       try {
@@ -242,7 +275,9 @@ async function existingFiles($: EngineInterface, paths: readonly string[]): Prom
       } catch {
         exists = false
       }
-      existsCache.set(abs, { exists, at: now })
+      cache.delete(abs)
+      cache.set(abs, { exists, at: now })
+      if (cache.size > EXISTS_LIMIT) cache.delete(cache.keys().next().value!)
       out.set(abs, exists)
     }),
   )
@@ -258,13 +293,16 @@ export const register: Register = (on, options) => {
   const styles = [style, terminalStyle] as const
   const styleFor = (surface: string): Style => (surface === 'terminal' ? terminalStyle : style)
   const clipboard: RichClipboard = {}
+  const transcriptCache: TranscriptCache = {}
+  const existsCache: ExistsCache = new Map()
+  const expandedCalls = makeExpandedCalls()
   const parsed = new Map<string, ReturnType<typeof parse>>()
   const parseCached = (text: string) => remember(parsed, text, () => parse(text, { numbers: style.highlightNumbers, paths: style.highlightPaths }))
 
   // 返事まるごとコピー: ターンの始めと終わりに会話の読み直しとターンの状態の書き込み（描き直させる）。
   if (style.replyCopy) {
     on('turn.start', async ($, e, next) => {
-      transcript = undefined
+      transcriptCache.current = undefined
       void update($, TURN, t => ({ running: true, n: t.n + 1 })).catch(() => undefined)
       return next(e)
     })
@@ -272,7 +310,7 @@ export const register: Register = (on, options) => {
       const done = await next(e)
       // サブエージェントのターンはメインの返事を変えない。
       if (e.agentId === undefined) {
-        transcript = undefined
+        transcriptCache.current = undefined
         await update($, TURN, t => ({ running: false, n: t.n + 1 })).catch(() => undefined)
       }
       return done
@@ -294,12 +332,12 @@ export const register: Register = (on, options) => {
   }
 
   on('session.start', async ($, e, next) => {
-    transcript = undefined
+    transcriptCache.current = undefined
     await applyRtl($, styles)
     await learnWhere($, where)
     const started = await next(e)
     await $.command
-      .register({ name: 'reply-prism', description: 'reply-prism のテーマを切り替える・一覧を出す', argumentHint: '[theme <name> | demo]' })
+      .register({ name: 'reply-prism', description: 'reply-prism のテーマを切り替える・一覧を出す', argumentHint: '[theme <name> | demo | demo-rtl]' })
       .catch(() => undefined)
     return started
   })
@@ -355,8 +393,8 @@ export const register: Register = (on, options) => {
     const s = styleFor(e.surface)
     const columns = Math.max(20, (e.viewport?.columns ?? 100) - 4)
     const controls = await readControls($, e, blocks)
-    const whole = await replyTexts($, s, e.props.text)
-    const known = await existingFiles($, openTargets(s, blocks).map(t => t.abs))
+    const whole = await replyTexts($, s, transcriptCache, e.props.text)
+    const known = await existingFiles($, existsCache, openTargets(s, blocks).map(t => t.abs))
     return (
       <Box flexDirection="row">
         <Box width={2} flexShrink={0}>

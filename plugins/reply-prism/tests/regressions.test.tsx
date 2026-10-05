@@ -5,6 +5,7 @@ import { helpText, showcaseText } from '../hooks/help'
 import { parse } from '../hooks/markdown'
 import { mermaidText } from '../hooks/mermaid'
 import { PRESETS } from '../hooks/presets'
+import { columnWidths } from '../hooks/render'
 
 const hl = { numbers: true, paths: true }
 
@@ -266,4 +267,15 @@ test('the help screen draws as command output', async $ => {
   })
   expect(await ui.find({ type: 'Box', text: /reply-prism/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a table too wide narrows only its long columns and keeps short ones whole', async () => {
+  // 見出し ⇅ 込みの幅: プラグイン 12 / 変更の中身 100 / テスト件数 12 / 状態 6、間隔 2 × 3、横幅 120
+  expect(columnWidths([12, 100, 12, 6], 120, 2)).toEqual([12, 84, 12, 6])
+  // 長い列が 2 本なら同じ上限まで縮め、余りは左から配る
+  expect(columnWidths([5, 50, 40], 60, 2)).toEqual([5, 26, 25])
+  // 収まる表はそのまま
+  expect(columnWidths([5, 10], 40, 2)).toEqual([5, 10])
+  // 列数より狭くても 1 字ずつは残す
+  expect(columnWidths([5, 5, 5], 2, 2)).toEqual([1, 1, 1])
 })
