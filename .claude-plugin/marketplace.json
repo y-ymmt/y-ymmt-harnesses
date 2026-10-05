@@ -9,7 +9,7 @@
     {
       "name": "turn-counter",
       "description": "ターン中のスピナーをこのセッションのターン数に差し替え、ツールが拒否されたら「ざわっ！」と出す Mod",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/turn-counter",
       "category": "productivity"

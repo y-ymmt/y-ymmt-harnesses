@@ -25,8 +25,6 @@ Sauteing
 |---|---|
 | 可否判定（`tool.check`）が `deny`／結果側で拒否された `tool.call`（入力検証での拒否や、人が権限プロンプトで断ったもの） | 赤の太字で **ざわっ！** |
 
-直近の拒否は動作確認用に `$.store` の `lastRefusal` に残る。
-
 ### ターン数の数え方
 
 - 数えるのは**メインループのターンだけ**。サブエージェントの実行は `turn.start` を
@@ -83,7 +81,7 @@ claude plugin disable turn-counter@y-ymmt-harnesses
 .claude-plugin/plugin.json   manifest
 hooks/hooks.json             modules: ["./hooks.tsx"]
 hooks/hooks.tsx              register()。フックとスピナーの描画
-hooks/zawa.ts                ターン数の文言・鍵・番号の決め方、ざわっ！の見た目、差し替える相手の判定
+hooks/counter.ts              ターン数の文言・鍵・番号の決め方、ざわっ！の見た目、差し替える相手の判定
 tests/hooks.test.ts          偽の `$` で hooks.tsx を動かすテスト（bun test）
 ```
 
@@ -110,8 +108,7 @@ bun build plugins/turn-counter/hooks/hooks.tsx --target=bun --external claude-co
 - テストは `claude-code/testing` を使わず、`bun:test` と偽の `$`・`on` で register() を動かす。
   `hooks.tsx` 冒頭の `@jsxRuntime classic` / `@jsx h` プラグマは、tsconfig を読まない場所から
   `bun test` しても、エンジンと同じく大域の `h` で JSX を組むためのもの。
-- `claude plugin validate --strict` は、プラグイン名に「claude」を含むという警告で必ず失敗する。
-  それ以外の警告・エラーが無ければよい。
+- `claude plugin validate plugins/turn-counter --strict` も通る（警告・エラーが無いこと）。
 - 読み込みの確認は `claude -p --model haiku --debug-file <log> "…"` で、ログに
   `plugin.register: turn-counter … admitted` が出ていて、`does not validate` が無いこと。
   描画木が弾かれると素の spinner が出て、ログに

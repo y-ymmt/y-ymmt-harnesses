@@ -25,6 +25,21 @@ export type Flash = {
 /** ツールが拒否されたとき。 */
 export const DENY_FLASH: Flash = { text: 'ざわっ！', color: 'red', bold: true }
 
+/**
+ * Claude Code が、ツールの実行を利用者や設定が断ったときに返す文言。
+ * `EACCES: permission denied` のような実行時エラーは含まない。
+ */
+const REFUSED =
+  /^(?:Error: )?(?:The user doesn't want to (?:proceed with|take) this|User rejected tool use|Permission for this action (?:was|has been) denied|Permission to use [\s\S]* has been denied)|denied by your permission settings/
+
+/**
+ * ツール結果の文が、拒否されたことを表すか。
+ *
+ * @param text `tool.call` の結果の `text`
+ */
+export function isRefusalText(text: string): boolean {
+  return REFUSED.test(text)
+}
 
 /** ざわっ！を出しておく長さ（ミリ秒）。 */
 export const FLASH_MS = 3000

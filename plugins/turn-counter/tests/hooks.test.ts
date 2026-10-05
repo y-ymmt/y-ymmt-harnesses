@@ -9,11 +9,12 @@ import { register } from '../hooks/hooks'
 import {
   CLAUDE_ORANGE,
   TURN_KEY_PREFIX,
+  isRefusalText,
   nextTurnOf,
   staleTurnKeysOf,
   turnKeyOf,
   turnTextOf,
-} from '../hooks/zawa'
+} from '../hooks/counter'
 
 /** 偽の描画木の 1 要素。エンジンの `h` と同じく `{ type, props, children }`。 */
 type Element = {
@@ -357,7 +358,7 @@ describe('ターン数の数え方', () => {
     expect(nextTurnOf(-3)).toBe(1)
     expect(turnTextOf(12)).toBe('ターン 12')
     expect(
-      staleTurnKeysOf(['lastRefusal', 'turns.a', 'turns.b', 'turns.c'], 2),
+      staleTurnKeysOf(['other', 'turns.a', 'turns.b', 'turns.c'], 2),
       'ターン数の鍵だけを、古い順に',
     ).toEqual(['turns.a'])
     expect(staleTurnKeysOf(['turns.a'], 2)).toEqual([])
@@ -463,7 +464,22 @@ describe('ざわっ！', () => {
     expect(rowsOf(await proc.spinner())[0]).toBe('ターン 1')
   })
 
-  test('結果側で拒否された tool.call も「ざわっ！」にし、lastRefusal を残す', async () => {
+  test('permission を含むだけの実行時エラー（EACCES など）では「ざわっ！」にしない', async () => {
+    const proc = new Process('session-e')
+
+    await proc.sessionStart()
+    await proc.turnStart()
+    await proc.emit('tool.call', { tool: 'Bash', command: 'cat /root/x' }, () => ({
+      ref: 'r',
+      result: {},
+      isError: true,
+      text: "EACCES: permission denied, open '/root/x'",
+    }))
+
+    expect(rowsOf(await proc.spinner())[0]).toBe('ターン 1')
+  })
+
+  test('結果側で拒否された tool.call も「ざわっ！」にする', async () => {
     const proc = new Process('session-c')
 
     await proc.sessionStart()
@@ -476,7 +492,6 @@ describe('ざわっ！', () => {
     }))
 
     expect(rowsOf(await proc.spinner())[0]).toBe('ざわっ！')
-    expect(proc.store.map.get('lastRefusal')).toMatchObject({ tool: 'Read', isError: true })
   })
 
   test('何も変わらないあいだは描き直しを頼まない', async () => {
@@ -492,5 +507,32 @@ describe('ざわっ！', () => {
 
     expect(proc.invalidations - before).toBe(0)
     expect(proc.timers.map(timer => timer.ms), 'タイマーは 1 秒に 1 本だけ').toEqual([1000])
+  })
+})
+
+describe('isRefusalText', () => {
+  test('Claude Code の拒否の文言に当たる', () => {
+    for (const text of [
+      "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+      "The user doesn't want to take this action right now.",
+      'User rejected tool use',
+      'Permission to use Bash with command rm -rf x has been denied.',
+      'Permission for this action was denied.',
+      'File is in a directory that is denied by your permission settings.',
+      '<tool_use_error>Read denied by your permission settings</tool_use_error>',
+    ]) {
+      expect(isRefusalText(text), text).toBe(true)
+    }
+  })
+
+  test('permission を含むだけのエラーには当たらない', () => {
+    for (const text of [
+      "EACCES: permission denied, open '/root/x'",
+      'Permission denied (publickey).',
+      'chmod: Operation not permitted',
+      '',
+    ]) {
+      expect(isRefusalText(text), text).toBe(false)
+    }
   })
 })

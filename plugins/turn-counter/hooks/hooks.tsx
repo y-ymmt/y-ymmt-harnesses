@@ -10,12 +10,13 @@ import {
   DENY_FLASH,
   FLASH_MS,
   isMainSpinner,
+  isRefusalText,
   nextTurnOf,
   staleTurnKeysOf,
   turnKeyOf,
   turnTextOf,
-} from './zawa'
-import type { Flash } from './zawa'
+} from './counter'
+import type { Flash } from './counter'
 
 /** ざわっ！の消灯を見直す間隔（ミリ秒）。 */
 const REFRESH_MS = 1000
@@ -195,19 +196,10 @@ export const register: Register = on => {
 
     const isRefused =
       called.deny !== undefined ||
-      (called.isError === true && /denied by your permission|permission/i.test(called.text ?? ''))
+      (called.isError === true && isRefusalText(called.text ?? ''))
 
     if (isRefused) {
-      const nowMs = await ignite($, zawa, DENY_FLASH)
-
-      // 直近の拒否を残す（動作確認用。`$.store.get('lastRefusal')` で読める）。
-      void $.store.set('lastRefusal', {
-        at: nowMs,
-        tool: e.tool,
-        deny: called.deny ?? null,
-        isError: called.isError === true,
-        text: (called.text ?? '').slice(0, 200),
-      })
+      await ignite($, zawa, DENY_FLASH)
     }
 
     return called
