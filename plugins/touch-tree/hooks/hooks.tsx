@@ -9,7 +9,8 @@ import type { TouchTreeRecord } from '../types'
 import { applyTouches, canonical, countKinds, emptyRecord, normalizePath, readOfResult } from './record'
 import type { Kind, Touching } from './record'
 import { lspCandidates, outputCandidates, planBash, readsOf, searchToolCandidates } from './scan'
-import { SYMBOLS, fitRow, forestOf, rowsOf } from './tree'
+import { SYMBOLS, editorOf, editorUrl, fitRow, forestOf, rowsOf } from './tree'
+import type { Editor } from './tree'
 import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
 
 /** プラグイン名。$.state と ui.press の持ち主。 */
@@ -308,7 +309,35 @@ async function openPane($: EngineInterface): Promise<string> {
  *
  * @param on エンジンの登録口
  */
-export const register: Register = on => {
+/** ファイルの行のボタンの key の頭（後ろにファイルの絶対パス）。 */
+export const OPEN_PREFIX = 'open:'
+
+/** ファイルをエディタで開く（macOS は open、それ以外は xdg-open に URL を渡す）。開けなければトーストで知らせる。 */
+async function openInEditor($: EngineInterface, editor: Editor, path: string): Promise<void> {
+  const url = editorUrl(editor, path)
+
+  if (url === null) return
+
+  for (const opener of ['open', 'xdg-open']) {
+    try {
+      const { exitCode, stderr } = await $.process.run([opener, url], { timeoutMs: 10_000 })
+
+      if (exitCode === 0) return
+
+      $.ui.toast(`開けませんでした: ${stderr.trim().split('\n')[0] ?? ''}`.trim(), { timeoutMs: 5_000 })
+
+      return
+    } catch {
+      // このコマンドが無い。次を試す。
+    }
+  }
+
+  $.ui.toast('ファイルを開くコマンド（open / xdg-open）が見つかりません', { timeoutMs: 5_000 })
+}
+
+export const register: Register = (on, options) => {
+  const editor = editorOf(options['editor'])
+
   on('session.start', async ($, e, next) => {
     flushTimer?.cancel()
     flushTimer = null
@@ -391,6 +420,7 @@ export const register: Register = on => {
     if (e.plugin === PLUGIN && e.requestId === PANE) {
       if (e.element === 'hits') await toggleHits($)
       if (e.element === 'clear') await clearRecord($)
+      if (e.element.startsWith(OPEN_PREFIX)) await openInEditor($, editor, e.element.slice(OPEN_PREFIX.length))
     }
 
     // 帯の開け閉めボタン。開いていれば閉じ、閉じていれば開く。
@@ -440,15 +470,23 @@ export const register: Register = on => {
         {forest.hidden > 0 && <Text dimColor wrap="truncate-end">{`検索に出ただけの ${forest.hidden} 件を隠しています`}</Text>}
         {shown.map((row, index) => {
           const color = row.kind === 'file' && row.state !== undefined ? COLORS[row.state] : undefined
+          // ファイルの行は押すとエディタで開くボタンにする（フォルダは開くと新しいウィンドウになりがちなので、しない）。
+          // 全画面の端末ではリンクのクリックをアプリが受け取ってしまい開かないので、Link ではなく Button で自分で開く。
+          // ボタンの文字には色を付けられないので、状態の色は先頭の記号で見分ける。
+          const canOpen = row.kind === 'file' && editorUrl(editor, row.path) !== null
 
           return (
             <Box key={`row-${index}`} flexDirection="row">
               {row.guide !== '' && <Text color={GUIDE_COLOR}>{row.guide}</Text>}
               {row.symbol !== '' && <Text color={color}>{row.symbol}</Text>}
               <Box flexGrow={1} flexShrink={1} minWidth={0}>
-                <Text color={color} bold={row.kind !== 'file' || row.isLast === true} underline={row.isLast === true} wrap="truncate-end">
-                  {row.name}
-                </Text>
+                {canOpen ? (
+                  <Button key={`${OPEN_PREFIX}${row.path}`} label={row.name} plain dimColor={row.state === 'hit'} onPress={() => undefined} />
+                ) : (
+                  <Text color={color} bold={row.kind !== 'file' || row.isLast === true} underline={row.isLast === true} wrap="truncate-end">
+                    {row.name}
+                  </Text>
+                )}
               </Box>
               {row.meta !== '' && (
                 <Box flexShrink={0}>

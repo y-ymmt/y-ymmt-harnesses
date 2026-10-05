@@ -225,6 +225,26 @@ export function rowsOf(forest: Forest, last: string | null): Row[] {
   return rows
 }
 
+// ---- エディタで開くリンク ----
+
+/** ファイルの行を押したときに開くエディタ。`off` ならリンクにしない。 */
+export type Editor = 'vscode' | 'cursor' | 'idea' | 'off'
+
+export const EDITORS: readonly Editor[] = ['vscode', 'cursor', 'idea', 'off']
+
+/** 設定の値をエディタに直す。知らない値は既定（vscode）。 */
+export function editorOf(value: unknown): Editor {
+  return typeof value === 'string' && (EDITORS as readonly string[]).includes(value.trim()) ? (value.trim() as Editor) : 'vscode'
+}
+
+/** ファイルを開くリンクの URL。絶対パスでなければ、または `off` なら null。 */
+export function editorUrl(editor: Editor, path: string): string | null {
+  if (editor === 'off' || !path.startsWith('/')) return null
+  if (editor === 'idea') return `idea://open?file=${encodeURIComponent(path)}`
+
+  return `${editor}://file${encodeURI(path)}`
+}
+
 // ---- 表示幅 ----
 
 /** 1 文字の表示幅（端末のセル数）。全角は 2、結合文字などは 0。 */

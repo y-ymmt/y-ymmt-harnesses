@@ -5,7 +5,7 @@
  */
 import { beforeAll, describe, expect, test } from 'bun:test'
 
-import { FLUSH_MS, MAX_ROWS, PANE, register } from '../hooks/hooks'
+import { FLUSH_MS, MAX_ROWS, OPEN_PREFIX, PANE, register } from '../hooks/hooks'
 import { textWidth } from '../hooks/tree'
 import type { TouchTreeRecord } from '../types'
 
@@ -56,13 +56,15 @@ class Process {
   readonly opened: string[] = []
   readonly closed: string[] = []
   readonly commands: string[] = []
+  readonly runs: string[][] = []
+  readonly toasts: string[] = []
   stateSets: string[] = []
   isRendering = false
   nowMs = 1_000_000
   cwd = ROOT
   readonly $: Record<string, unknown>
 
-  constructor(files: readonly string[] = [], store = new Map<string, unknown>()) {
+  constructor(files: readonly string[] = [], store = new Map<string, unknown>(), private readonly options: Record<string, unknown> = {}) {
     this.files = new Set(files)
     this.store = store
 
@@ -110,8 +112,17 @@ class Process {
         set: async (key: string, value: unknown) => void this.store.set(key, value),
       },
       command: { register: async ({ name }: { name: string }) => void this.commands.push(name) },
+      process: {
+        run: async (argv: readonly string[]) => {
+          if (argv[0] === 'open' || argv[0] === 'xdg-open') this.runs.push([...argv])
+          if (argv[0] === 'git') return { exitCode: 1, stdout: '', stderr: '' }
+          if (argv[0] !== 'open') throw new Error('not found')
+          return { exitCode: 0, stdout: '', stderr: '' }
+        },
+      },
       ui: {
-        resolve: () => ({ Box: 'Box', Text: 'Text', Button: 'Button', Raster: 'Raster' }),
+        toast: (text: string) => void this.toasts.push(text),
+        resolve: () => ({ Box: 'Box', Text: 'Text', Link: 'Link', Button: 'Button', Raster: 'Raster' }),
         open: async ({ id }: { id: string }) => {
           this.opened.push(id)
           return { isPlaced: true }
@@ -128,7 +139,7 @@ class Process {
       this.hooks.push({ event, matcher, hook })
     }
 
-    ;(register as unknown as (on: unknown, options: unknown) => void)(on, {})
+    ;(register as unknown as (on: unknown, options: unknown) => void)(on, this.options)
   }
 
   /** イベントを流す。合うフックが無ければ core の値をそのまま返す。 */
@@ -189,7 +200,11 @@ class Process {
 
 /** 木の中の文字列をすべてつなげたもの。 */
 function textOf(node: Node): string {
-  return typeof node === 'string' ? node : node.children.map(textOf).join('')
+  if (typeof node === 'string') return node
+  // ファイル名はボタンの label に入っている。
+  if (node.type === 'Button') return String(node.props['label'] ?? '')
+
+  return node.children.map(textOf).join('')
 }
 
 /** 木を平らにする。 */
@@ -207,12 +222,14 @@ function flatten(node: Node): Element[] {
  */
 function invalidReasonOf(node: Node, parent: string | null = null): string {
   if (typeof node === 'string') {
-    if (parent !== 'Text') return `文字列が ${parent ?? '根'} の直下にある`
+    if (parent !== 'Text' && parent !== 'Link') return `文字列が ${parent ?? '根'} の直下にある`
     return node.length > 10_000 ? `Text が ${node.length} 文字` : ''
   }
 
-  if (!['Box', 'Text', 'Button'].includes(node.type)) return `知らない要素 ${node.type}`
+  if (!['Box', 'Text', 'Button', 'Link'].includes(node.type)) return `知らない要素 ${node.type}`
   if (parent === 'Text' && node.type !== 'Text') return `Text の中に ${node.type}`
+  if (parent === 'Link' && node.type !== 'Text') return `Link の中に ${node.type}`
+  if (node.type === 'Link' && (typeof node.props['href'] !== 'string' || node.props['href'] === '')) return 'Link に href が無い'
   if (parent === 'Button') return 'Button に子がある'
 
   if (node.type === 'Button') {
@@ -269,6 +286,50 @@ const FILES = [
 ]
 
 describe('記録と描画', () => {
+  test('ファイルの行は押すとエディタで開くボタンになる。フォルダの行と editor: off はボタンにしない', async () => {
+    const FILE = `${JAVA}/web/ApiController.java`
+    const opensOf = (node: Node) => flatten(node).filter(el => el.type === 'Button' && String(el.props['key']).startsWith(OPEN_PREFIX))
+    const boot = async (options: Record<string, unknown>) => {
+      const proc = new Process(FILES, new Map(), options)
+
+      await proc.sessionStart()
+      await proc.tool({ tool: 'Edit', file_path: FILE }, { result: { filePath: '' }, text: 'ok' })
+      await proc.advance(FLUSH_MS)
+
+      return proc
+    }
+    const pressOpen = (proc: Process, path: string) =>
+      proc.emit('ui.press', { plugin: 'touch-tree', element: `${OPEN_PREFIX}${path}`, component: 'Pane', requestId: PANE, surface: 'terminal' })
+
+    const proc = await boot({})
+    const drawn = await proc.pane(60)
+    const [button] = opensOf(drawn)
+
+    expect(invalidReasonOf(drawn)).toBe('')
+    expect(opensOf(drawn).length, 'ファイルの 1 行だけ').toBe(1)
+    expect(button?.props['label']).toBe('ApiController.java')
+    expect(button?.props['plain']).toBe(true)
+
+    await pressOpen(proc, FILE)
+    expect(proc.runs, '既定は VS Code の URL を open で開く').toEqual([['open', `vscode://file${encodeURI(FILE)}`]])
+
+    const idea = await boot({ editor: 'idea' })
+
+    await pressOpen(idea, FILE)
+    expect(idea.runs[0]).toEqual(['open', `idea://open?file=${encodeURIComponent(FILE)}`])
+
+    const off = await boot({ editor: 'off' })
+
+    expect(opensOf(await off.pane(60))).toEqual([])
+    await pressOpen(off, FILE)
+    expect(off.runs).toEqual([])
+
+    const unknown = await boot({ editor: 'emacs' })
+
+    await pressOpen(unknown, FILE)
+    expect(unknown.runs[0]?.[1], '知らない値は既定に戻す').toStartWith('vscode://file/')
+  })
+
   test('Read・Edit・Write・Bash の grep を記録し、ツリーで描く', async () => {
     const proc = new Process(FILES)
 
