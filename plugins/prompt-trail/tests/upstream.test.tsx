@@ -67,6 +67,15 @@ test('the terminal dock draws a tick per prompt, other seats draw the text, pres
 // カードの文字に本家と同じ幅（76 マス）を残す。
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 104, scroll: { offset: 0, bodyRows: 10 }, view: {} }
 
+// prompt-trail: 横の帯（端末）のホバーのカードは、棒ごとの key 付きの Box（`bar-<i>`）の中の key の無い Box
+// （key があるとカード自身がホバーの範囲になる）。縦のペインが狭いときに帯に出すカードは、本家どおり `card-<i>`。
+const hiddenCard = async (band: any, i: number) => {
+  const keyed = await band.find({ key: `card-${i}` })
+  if (keyed) return keyed
+  const holder = await band.find({ key: `bar-${i}` })
+  return (holder?.children ?? []).find((child: any) => typeof child === 'object' && child?.type === 'Box')
+}
+
 const drawPrompts = async ($: any, on: any) => {
   on('ui.render', { component: 'UserMessage' }, ($: any, e: any) => {
     const { Text } = $.ui.resolve(e)
@@ -90,7 +99,7 @@ test('a narrow vertical rail leaves the prompt text to hidden cards in the band'
   await drawPrompts($, on)
   await $.ui.mount({ plugin: 'prompt-trail', surface: 'terminal', component: 'Pane', requestId: 'prompt-trail', props: pane('dock', 4) })
   const band = await $.ui.mount({ plugin: 'prompt-trail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect((await band.find({ key: 'card-0' }))?.props.display).toBe('none')
+  expect((await hiddenCard(band, 0))?.props.display).toBe('none')
   expect(await band.find({ type: 'Text', text: /first prompt/ })).toBeDefined()
 })
 
@@ -121,7 +130,7 @@ test('/prompt-trail horizontal draws a text line over one row of bars, heavy whe
   const line = drawn.findIndex((node: any) => node.type === 'Text' && /^#2 second prompt$/.test(String(node.text)))
   expect(line).toBeGreaterThanOrEqual(0)
   expect(line).toBeLessThan(drawn.findIndex((node: any) => node.type === 'Button'))
-  expect((await band.find({ key: 'card-0' }))?.props.display).toBe('none')
+  expect((await hiddenCard(band, 0))?.props.display).toBe('none')
   expect((await band.press({ key: 'jump-0' }))?.element).toBe('jump-0')
 })
 
@@ -1492,7 +1501,8 @@ test('slash-command rows and interruption notices are not listed as prompts', as
   world(on, {}, jsonl([
     { type: 'user', uuid: 'u1', message: { role: 'user', content: 'first' } },
     { type: 'user', uuid: 'i1', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } },
-    { type: 'user', uuid: 'c1', message: { role: 'user', content: '/compact' } },
+    { type: 'user', uuid: 'c1', message: { role: 'user', content: '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>' } },
+    { type: 'user', uuid: 'o1', message: { role: 'user', content: '<local-command-stdout>Compacted</local-command-stdout>' } },
     { type: 'user', uuid: 'u2', message: { role: 'user', content: 'second' } },
     { type: 'user', uuid: 'i2', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] } },
   ]))

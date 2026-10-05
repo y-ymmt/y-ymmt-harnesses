@@ -134,11 +134,55 @@ export const helpText = (): string =>
     '  /prompt-trail help         この説明',
     '',
     '再利用',
-    '  ホバーのカード（縦のペインでは行）の [ 入力欄へ ] で入力欄に入れる（打ちかけの文があれば、もう一度押すと置き換える）。',
-    '  [ コピー ] でクリップボードへ。棒をクリックすると、そのカードが数秒そのまま残る。',
+    '  ホバーのカード（縦のペインでは行の下）の [ 入力欄へ ] で入力欄に入れる（打ちかけの文があれば、もう一度押すと置き換える）。',
+    '  [ コピー ] でクリップボードへ。ボタンはホバーした棒の真上に出るので、棒から指を真上に上げて押す（カードは出たまま）。',
+    '  帯の左半分の棒ではカードが右へ伸び（ボタンが先）、右半分の棒では左へ伸びる（本文 · 補足 #番号 [ 入力欄へ ] [ コピー ]）。',
+    '  ほかの棒に指が乗るか帯の外へ出るとカードは消える。棒をクリックすると、そのカードが数秒そのまま残る。',
     '',
     '色（上ほど優先。複数当てはまるときは上の 1 つ）',
     ...KIND_ORDER.map(kind => `  ${STRIP} ${LEGEND_ROWS[kind].replace(':', `（${KIND_WORDS[kind]}）:`)}`),
     '',
+    'コマンド（/code-review など）',
+    '  モデルへの依頼になってターンが走るコマンドは棒に並ぶ（本文は打った文）。押すと、描かれた「❯ /…」の行へ、なければ直後の返事の行へ飛ぶ。',
+    '  その場で終わるコマンド（/compact・/plugin・/config・Mod のコマンドなど）は並ばない。判定は記録の印で、コマンドの増減で過去の行は変わらない。',
+    '',
     '棒の形: ┃ 読んでいるプロンプト / │ ほか / ┆ 飛べなかったプロンプト（next・prev は飛ばす）',
   ].join('\n')
+
+/**
+ * 一覧が取れないときの、スラッシュコマンドの行の見分け: `/名前` のあとが空白か行末（`/compact`、`/prompt-trail next`、`/1`）。
+ * `/1の方法で…` や `/Users/me/…` のように `/` で始まるだけの文はプロンプトとして数える。
+ * 日本語名のコマンドは拾えないので、コマンドの一覧（`$.command.list()`）が取れるときは `isCommandText` を使う。
+ */
+export const isSlashCommand = (text: string): boolean => /^\/[A-Za-z0-9_:.-]+(?:\s|$)/.test(text)
+
+/**
+ * `/` のあとの最初の語（`plugin:name` 形式もそのまま）。あとが空白か行末でなければ undefined
+ * （`/Users/me/app` や `/1の方法で` は、名前のあとが空白でないので語にならない）。
+ */
+export const slashName = (text: string): string | undefined => /^\/([^\s/]+)(?:\s|$)/u.exec(text)?.[1]
+
+/**
+ * 画面に描かれた行の文が、コマンドの行か。一覧（`names`）があればその中の名前のときだけ、
+ * 一覧が取れなければ `isSlashCommand` で決める。記録ファイルの行には使わない
+ * （記録の行は `<command-name>` の印で決める。あとでコマンドが増減しても過去の行の判定が変わらないように）。
+ */
+export const isCommandText = (text: string, names: ReadonlySet<string> | undefined): boolean => {
+  if (!names) return isSlashCommand(text)
+  const name = slashName(text)
+
+  return name !== undefined && names.has(name)
+}
+
+/**
+ * 記録ファイルの、コマンドの行の中身（`<command-name>/code-review</command-name><command-message>…
+ * <command-args>--comment</command-args>`）から、打った文（`/code-review --comment`）を取り出す。
+ * コマンドの行でなければ undefined。
+ */
+export const commandRowText = (content: string): string | undefined => {
+  const name = /^\s*<command-name>\s*\/?([^<\s]+)\s*<\/command-name>/.exec(content)?.[1]
+  if (name === undefined) return undefined
+  const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(content)?.[1]?.trim()
+
+  return args ? `/${name} ${args}` : `/${name}`
+}

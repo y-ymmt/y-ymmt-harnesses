@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "prompt-trail",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "このセッションで打ったプロンプトを帯の棒の列か縦のペインに並べ、ホバーで読み・クリックでその位置へ飛び・入力欄へ戻してもう一度使える Mod。棒の色でそのターンに起きたこと（編集・失敗・拒否・中断）が分かる（prompt-rail の改変版）",
   "author": {
     "name": "y-ymmt"

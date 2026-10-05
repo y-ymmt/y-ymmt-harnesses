@@ -2,7 +2,7 @@
 // hooks/index.tsx を元にした改変版。本家のコメントは英語のまま残し、足した・変えた所に日本語のコメントを付けている。
 import type { EngineInterface, Register, RenderSurface, Timer } from 'claude-code'
 import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
-import { EDITING_TOOLS, KIND_COLORS, KIND_WORDS, MARK, REJECTED, STRIP, USAGE, helpText, holds, kindOf, type Kind } from './trail'
+import { EDITING_TOOLS, KIND_COLORS, KIND_WORDS, MARK, REJECTED, STRIP, USAGE, commandRowText, helpText, holds, isCommandText, isSlashCommand, kindOf, slashName, type Kind } from './trail'
 
 const PLUGIN = 'prompt-trail'
 const PANE = 'prompt-trail'
@@ -35,8 +35,8 @@ const KEPT_TRANSCRIPTS = 20
 // row follows under its uuid.
 const PROVISIONAL_ID = 'placeholder'
 // User rows the engine writes around its own output (slash commands, bash
-// mode, reminders), which are not prompts.
-const WRAPPER = /^<(command-|local-command-|bash-|system-reminder|task-notification|user-prompt-submit-hook)/
+// mode, reminders, subagent hand-backs and messages from other sessions), which are not prompts.
+const WRAPPER = /^<(command-|local-command-|bash-|system-reminder|task-notification|user-prompt-submit-hook|agent-message|cross-session-message)/
 // The viewer's state the engine puts ahead of a prompt sent while an artifact
 // is open; the typed text follows it. No row field tells it from typed text,
 // so only the engine's layout matches: the artifact id, a JSON line starting
@@ -62,6 +62,8 @@ const RAIL_INSET = 2
 // command's own row, which the transcript file holds but the surface skips.
 // Other refusals (a race with another move) pass, so they leave the tick be.
 const NOT_DRAWN = /nothing drawn/
+// prompt-trail: 画面に描かれた `/名前` が一覧に無いときに一覧を取り直す間隔の下限（ms）。
+const UNKNOWN_REFRESH_MS = 1500
 // The engine's refusal where no transcript viewport takes a plugin's scroll,
 // as in the desktop app; said once, in words of the rail's own.
 const UNSCROLLABLE = /not scrollable/
@@ -82,10 +84,16 @@ const CONFIRM_MS = 5000
 // カードとペインの行に置くボタン。端末のボタンは `[ label ]` で、ラベルの両脇に 2 マスずつ取る。
 const FILL_LABEL = '入力欄へ'
 const COPY_LABEL = 'コピー'
-// ボタン 2 つとその前の空白の幅: 空白 1 + `[ 入力欄へ ]` 12 + 空白 1 + `[ コピー ]` 10。
+// カードの頭に置くボタン 2 つとその後ろの空白の幅: `[ 入力欄へ ]` 12 + 空白 1 + `[ コピー ]` 10 + 空白 1。
 const ACTIONS_CELLS = 24
 // 帯のカードでボタンの横に残す文字の幅の下限。これより狭い帯ではカードにボタンを置かない。
+// 右寄りの棒でも、ボタンを左へずらしてこれだけの文字を残す。
 const CARD_TEXT_WITH_ACTIONS = 30
+// 帯のカードで、ホバーした棒の真上に [ 入力欄へ ] のラベルの真ん中が来るよう、ボタンを棒の桁からこれだけ左へずらす。
+const ACTIONS_LEAD_BACK = 5
+// 帯の右半分の棒では、カードを左へ伸ばす: `本文… · 補足 #94 [ 入力欄へ ] [ コピー ]`。[ コピー ] の右端が棒の真上で終わる。
+// 末尾の空白を持たないボタン 2 つの幅: 12 + 1 + 10。
+const ACTIONS_CELLS_LEFT = 23
 // これより狭いペインでは [ 入力欄へ ] [ コピー ] の行を出さない（/prompt-trail fill・copy で使う）。
 // 行の頭の印・字下げ 3 マスと、ボタン 2 つ・間の空白 23 マス。
 const PANE_ACTIONS_MIN_COLUMNS = 26
@@ -100,13 +108,46 @@ const STEP_COMMANDS = [
 type Mode = 'off' | 'vertical' | 'horizontal'
 const isMode = (value: unknown): value is Mode => value === 'off' || value === 'vertical' || value === 'horizontal'
 
-type Entry = { id: string; text: string }
+// prompt-trail: command は、スラッシュコマンドを打った行（text は打った文 `/code-review --comment`）。
+// モデルへの依頼になってターンが走るものだけが一覧に入る。
+type Entry = { id: string; text: string; command?: true }
 
 // The key rows are matched by. A message the engine splits into several rows
 // is drawn under ids derived from its stored uuid, the first four groups kept
 // and the last replaced by the row's index, so a uuid is matched by those
 // groups; any other id (a tool_use id, the provisional one) as it is.
 export const rowKey = (id: string) => (UUID.test(id) ? id.slice(0, 24) : id)
+
+// prompt-trail: 記録のコマンドの行（ターンが走るもの）に、画面に描かれた `❯ /code-review …` の行を、
+// 打った文と順番（同じ文の n 番目どうし）で結び付ける。`rows` は描かれた id -> 打った文（描かれた順）。
+// 返すのは、記録の行の id -> 結び付いた描かれた id。
+export const bindCommandRows = (entries: Entry[], rows: Map<string, string>): Map<string, string> => {
+  const byText = new Map<string, string[]>()
+  for (const [id, text] of rows) byText.set(text, [...(byText.get(text) ?? []), id])
+  const counts = new Map<string, number>()
+  const bound = new Map<string, string>()
+  for (const entry of entries) {
+    if (!entry.command) continue
+    const n = counts.get(entry.text) ?? 0
+    counts.set(entry.text, n + 1)
+    const id = byText.get(entry.text)?.[n]
+    if (id !== undefined) bound.set(entry.id, id)
+  }
+  return bound
+}
+
+// prompt-trail: 飛び先の候補（前から試す）。ふつうのプロンプトは描かれた行。コマンドの行は、結び付いた描かれた
+// `❯ /code-review …` の行、なければそのターンの最初の返事の行（描かれた id があればそれ）、どちらも無ければ
+// 記録の行の id（描かれていないので断られ、点線になる）。
+export const jumpTargets = (entry: Entry, drawn: Map<string, string>, replies: Map<string, string>, drawnReplies: Map<string, string>): string[] => {
+  if (!entry.command) return [drawnRow(drawn, entry.id)]
+  const targets: string[] = []
+  const bound = drawn.get(rowKey(entry.id))
+  if (bound !== undefined) targets.push(bound)
+  const reply = replies.get(rowKey(entry.id))
+  if (reply !== undefined) targets.push(drawnReplies.get(rowKey(reply)) ?? reply)
+  return targets.length > 0 ? targets : [entry.id]
+}
 
 // The id a prompt's row was last drawn under, which a jump scrolls to, from a
 // map of row key -> drawn id; its own id while it has not been drawn.
@@ -271,6 +312,16 @@ type TranscriptIndex = {
   known: Set<string>
 }
 
+// prompt-trail: プロンプトの row key -> そのターンの最初の返事の行の id。コマンドの行が画面に描かれていないとき、そこへ飛ぶ。
+export const firstReplies = (index: TranscriptIndex): Map<string, string> => {
+  const out = new Map<string, string>()
+  for (const [id, i] of index.owners) {
+    const prompt = index.prompts[i]
+    if (prompt && !out.has(rowKey(prompt.id))) out.set(rowKey(prompt.id), id)
+  }
+  return out
+}
+
 // The uuids on the live branch: the chain of parents from the last row. A
 // /rewind leaves the abandoned branch in the file; a /compact boundary starts
 // a new chain whose logicalParentUuid links back to the rows before it.
@@ -344,11 +395,45 @@ const resultText = (content: unknown): string => {
 // The rows of a transcript JSONL's text, in order.
 const parseRows = (jsonl: string) => jsonl.split('\n').flatMap(line => (line.trim() ? (parseRow(line) ?? []) : []))
 
+// prompt-trail: 記録ファイルの行の本文（文字列か、text ブロックをつないだもの）。
+const rowText = (row: any): string => {
+  const content = row?.message?.content
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((block: any) => block?.type === 'text' && typeof block.text === 'string')
+    .map((block: any) => block.text)
+    .join('\n')
+}
+
+// prompt-trail: `rows[from]`（コマンドの行）が、モデルへの依頼になってターンが走るものか。記録の印だけで決める:
+// 直後の会話の行が、コマンドの展開（isMeta の user の行。スキル・プロンプト型のカスタムコマンド）か assistant の返事なら走る。
+// 組み込みの `/compact` `/plugin` などは直後が `<local-command-stdout>` の行（isMeta でない user の行）で、
+// Mod が登録したコマンドは system の local_command の行なので、走らない。
+// 一覧（`$.command.list()`）は見ない: あとでコマンドが増減しても、過去の行の判定が変わらない。
+const startsTurn = (rows: any[], from: number): boolean => {
+  for (let j = from + 1; j < rows.length; j++) {
+    const row = rows[j]
+    if (row.isSidechain) continue
+    if (row.type === 'assistant') return true
+    if (row.type === 'system') {
+      if (row.subtype === 'local_command') return false
+      continue
+    }
+    if (row.type !== 'user') continue
+    if (!row.isMeta) return false
+    // 警告・注意書きの行は展開ではない。その先を見る。
+    if (/^<(local-command|system-reminder)/.test(rowText(row).trimStart())) continue
+    return true
+  }
+  return false
+}
+
 // The person's prompts on the live branch of a transcript's rows, in order,
 // keyed by message uuid, and the prompt each reply row and tool call answers
 // (a tool row is drawn under its tool_use id). Tool results, meta rows,
 // sidechains and the engine's wrapper rows are not prompts.
-const indexRows = (rows: any[]): TranscriptIndex => {
+export const indexRows = (rows: any[]): TranscriptIndex => {
   const live = liveBranch(rows)
   const prompts: Entry[] = []
   const owners: [string, number][] = []
@@ -361,7 +446,8 @@ const indexRows = (rows: any[]): TranscriptIndex => {
   // prompt-trail: 編集のツール呼び出し（id → パスとターン）。結果が失敗・拒否なら、同じターンで
   // 同じパスへの他の編集が残っていない限り、そのパスを編集したファイルから外す。
   const edits = new Map<string, { path: string; turn: Turn }>()
-  for (const row of rows) {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex]
     if (row.isSidechain || !live.has(row.uuid)) continue
     const turn = turns[started]
     if (row.type === 'system' && row.subtype === 'turn_duration' && typeof row.durationMs === 'number') {
@@ -394,7 +480,7 @@ const indexRows = (rows: any[]): TranscriptIndex => {
     if (row.type === 'attachment' && row.attachment?.type === 'queued_command') {
       const prompt = row.attachment.prompt
       const text = typeof prompt === 'string' ? prompt.replace(VIEW_CONTEXT, '').trim() : ''
-      if (!text || WRAPPER.test(text) || text.startsWith('/')) continue
+      if (!text || WRAPPER.test(text) || isSlashCommand(text)) continue
       prompts.push({ id: row.uuid, text })
       turns.push(emptyTurn())
       times.push({ start: NaN, last: NaN })
@@ -412,6 +498,18 @@ const indexRows = (rows: any[]): TranscriptIndex => {
         .join('\n')
     }
     text = text.replace(VIEW_CONTEXT, '').trim()
+    // prompt-trail: コマンドの行（`<command-name>` の印）。ターンが走るものだけを、打った文で一覧に入れる。
+    // 走らないもの（/compact・/plugin・/config など）は、これまで通り入れない。
+    const command = typeof content === 'string' ? commandRowText(content) : undefined
+    if (command !== undefined) {
+      if (!startsTurn(rows, rowIndex)) continue
+      prompts.push({ id: row.uuid, text: command, command: true })
+      turns.push(emptyTurn())
+      started = prompts.length - 1
+      const at = Date.parse(row.timestamp)
+      times.push({ start: at, last: at })
+      continue
+    }
     // prompt-trail: ツールの結果を、そのターンの失敗・拒否・編集に数える。中断の知らせが同じ行に乗ることがあるので、その前に。
     if (Array.isArray(content) && turn) {
       for (const block of content) {
@@ -432,9 +530,9 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       continue
     }
     if (Array.isArray(content) && content.some((block: any) => block?.type === 'tool_result')) continue
-    // A slash command's own row is not a prompt: the render hook skips it too,
-    // so it is never drawn and could not be scrolled to.
-    if (!text || WRAPPER.test(text) || text.startsWith('/')) continue
+    // prompt-trail: コマンドの行は上の `<command-name>` の印で決めたので、WRAPPER の行だけを外す。
+    // `/` で始まるだけの文（`/tmp のログを見て`）は、記録では印の無い ふつうのプロンプト。
+    if (!text || WRAPPER.test(text)) continue
     prompts.push({ id: row.uuid, text })
     turns.push(emptyTurn())
     started = prompts.length - 1
@@ -655,6 +753,53 @@ async function jumpTo($: EngineInterface, id: string, target: string, unreachabl
   }
 }
 
+// prompt-trail: 飛び先の候補を前から試す。最後の 1 つ以外は「描かれていない」などで断られても黙って次へ進み、
+// 最後の 1 つの答えだけを jumpTo と同じに扱う（断りの知らせ・飛べない印）。飛べた先を返す。
+async function jumpFirst($: EngineInterface, id: string, targets: string[], unreachable: Set<string>, notices: { isUnscrollableSaid: boolean }) {
+  for (const target of targets.slice(0, -1)) {
+    try {
+      const result = await $.ui.scroll({ to: { requestId: target }, block: 'start' })
+      if (!result.deny) {
+        if (noteScroll(unreachable, id, undefined)) await redrawRail($)
+        return target
+      }
+    } catch {
+      // 次の候補へ。
+    }
+  }
+  const last = targets.at(-1)
+  return last !== undefined && (await jumpTo($, id, last, unreachable, notices)) ? last : undefined
+}
+
+// prompt-trail: コマンドの一覧を取り直し、`accept` に渡して、その結果（決め直した行）を流す。取れなければ undefined を渡す。
+async function reloadCommands<Row>(
+  $: EngineInterface,
+  accept: (names: Set<string> | undefined) => { reported: boolean; cut: Row | undefined; changed: boolean }[],
+  settle: Settle,
+  confirm: (row: Row) => void,
+  isStale: () => boolean,
+) {
+  let names: Set<string> | undefined
+  try {
+    names = new Set((await $.command.list()).map(command => command.name))
+  } catch {
+    names = undefined
+  }
+  flushRows($, accept(names), settle, confirm, isStale)
+}
+
+// prompt-trail: 描かれた行を扱った結果を流す: 並びが変わったなら描き直し、位置の報告があれば afterReport。
+function flushRows<Row>(
+  $: EngineInterface,
+  outs: { reported: boolean; cut: Row | undefined; changed: boolean }[],
+  settle: Settle,
+  confirm: (row: Row) => void,
+  isStale: () => boolean,
+) {
+  if (outs.some(out => out.changed)) redrawRailLater($)
+  for (const out of outs) if (out.reported) afterReport($, settle, out.cut, confirm, isStale)
+}
+
 // Draw the rail's sites again, and them alone (see MOVED).
 async function redrawRail($: EngineInterface) {
   const { value = 0 } = await $.state.get(MOVED)
@@ -738,6 +883,65 @@ async function rememberedTranscript($: EngineInterface) {
   return typeof value?.path === 'string' ? value.path : undefined
 }
 
+// prompt-trail: このセッションのトランスクリプトの場所。classic.SessionStart・classic.Stop が教えてくれるほか、
+// 覚えた場所か、置き場所の決まりから探した場所。
+type Place = { at: string | undefined }
+
+// prompt-trail: トランスクリプトの場所。classic.* の hook は、管理された設定のある機械では組み込みのセキュリティの
+// プラグインに飛ばされ（debug ログに `classic.SessionStart bypassed by ...`）、ユーザーのプラグインには届かない。
+// そこでも記録を読めるよう、session.start とターンの始め・終わりでも、覚えた場所か置き場所の決まりから求めて覚える。
+async function transcriptPathOf($: EngineInterface, place: Place) {
+  if (place.at !== undefined) return place.at
+  const remembered = await rememberedTranscript($)
+  const path = remembered ?? (await foundTranscript($))
+  if (path === undefined) return undefined
+  place.at = path
+  if (remembered === undefined) await rememberTranscript($, await $.session.id(), path)
+  return path
+}
+
+// prompt-trail: 記録を読んで並びに混ぜ、変わったら描き直す（後から読み終えた分も）。
+async function readAndMerge($: EngineInterface, seen: Seen, merge: (index: TranscriptIndex) => boolean, path: string) {
+  const index = await readTranscript($, path, seen, index => {
+    if (merge(index)) void redrawRail($)
+  })
+  if (index && merge(index)) await redrawRail($)
+  return index
+}
+
+// prompt-trail: プロジェクトのフォルダ名。Claude Code はセッションを始めたフォルダのパスの英数字以外を `-` にした名前の
+// フォルダ（設定フォルダの projects の下）に、セッション id を名前にしたトランスクリプトを置く。
+export const projectFolderName = (root: string) => root.replace(/[^a-zA-Z0-9]/g, '-')
+
+// prompt-trail: このセッションのトランスクリプトを探す。セッションの途中で入れた・有効にした Mod は
+// classic.SessionStart を受け取れず、トランスクリプトの場所を覚えていない。そのままでは読めるまで描かれた行だけを
+// 描かれた順（スクロールで上の行が後から描かれると逆順）に並べてしまうので、置き場所の決まりから探す。
+// 見つからなければ undefined（次のターンの始め・終わりで探し直す。classic.Stop が届けば、その場所を使う）。
+async function foundTranscript($: EngineInterface) {
+  try {
+    const id = await $.session.id()
+    const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+    const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? (home === undefined ? undefined : `${home}/.claude`)
+    if (config === undefined) return undefined
+    const projects = `${config.replace(/[\\/]+$/, '')}/projects`
+    const roots = [...new Set([await $.session.root(), await $.session.cwd()])]
+    for (const root of roots) {
+      const path = `${projects}/${projectFolderName(root)}/${id}.jsonl`
+      if (await $.fs.exists(path)) return path
+    }
+    // 長いパスのフォルダ名は切られて後ろに印が付くので、名前の頭が合うフォルダの中を見る。
+    const heads = roots.map(root => projectFolderName(root).slice(0, 200))
+    for (const entry of await $.fs.list(projects)) {
+      if (entry.kind !== 'dir' || !heads.some(head => entry.name.startsWith(head))) continue
+      const path = `${projects}/${entry.name}/${id}.jsonl`
+      if (await $.fs.exists(path)) return path
+    }
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const register: Register = (on, options) => {
   let entries: Entry[] = []
   // Assistant row key -> the key of the prompt it answers, from the transcript.
@@ -778,10 +982,15 @@ export const register: Register = (on, options) => {
   }
   // A prompt's turn as the rail shows it: the transcript's record, completed
   // by what the engine reported before the transcript had it.
+  // prompt-trail: 記録にそのターンの turn_duration の行があれば、終わり方も記録だけで決める（engine の知らせは
+  // 使わない）。engine の知らせは「どのプロンプトのターンか」を推して当てているので、外れることがある:
+  // 送ってすぐ取り消され、同じ文で送り直されたプロンプト（記録では本線から外れる）の「中断」が、
+  // 送り直した方や 1 つ前のプロンプトに付くなど。
   const turnOf = (id: string): Turn | undefined => {
     const turn = turns.get(id)
+    const isFiled = turn?.durationMs !== undefined
     const ms = turn?.durationMs ?? reported.get(rowKey(id))
-    const outcome = isRunningFor(id) ? 'running' : (turn?.outcome ?? ended.get(rowKey(id)))
+    const outcome = isRunningFor(id) ? 'running' : (turn?.outcome ?? (isFiled ? undefined : ended.get(rowKey(id))))
     if (!turn && ms === undefined && outcome === undefined) return undefined
     return { ...emptyTurn(), ...turn, ...(ms === undefined ? {} : { durationMs: ms }), ...(outcome ? { outcome } : {}) }
   }
@@ -813,6 +1022,19 @@ export const register: Register = (on, options) => {
   const drawn = new Map<string, string>()
   // The ids of the prompts the last transcript read listed.
   let filed = new Set<string>()
+
+  // prompt-trail: コマンドの一覧（$.command.list()）。画面に描かれた行と記録の行を結び付けるときと、
+  // まだ記録に書かれていない仮の行の判定だけに使う。記録の行がコマンドかどうかは記録の印で決める（startsTurn）。
+  // 取れないとき（undefined）は isSlashCommand の判定に戻す。
+  let commandNames: Set<string> | undefined
+  let unknownRefreshedAt = 0
+  // 画面に描かれたコマンドの行（描かれた id -> 打った文）。記録のコマンドの行と文・順番で結び付ける（rebind）。
+  const commandRows = new Map<string, string>()
+  // 一覧に無い `/名前` の行。一覧を取り直してから、コマンドかプロンプトかを決める。
+  const undecided = new Map<string, { text: string; onScreen: { first: number } | null | undefined }>()
+  // プロンプトの row key -> そのターンの最初の返事の行の id（記録から）と、返事の行が描かれた id。
+  let replies = new Map<string, string>()
+  const drawnReplies = new Map<string, string>()
 
   const addPrompt = (id: string, text: string) => {
     // A new prompt is drawn under a provisional id before it is stored, then
@@ -1052,6 +1274,70 @@ export const register: Register = (on, options) => {
     return jump
   }
 
+  // prompt-trail: 記録のコマンドの行（ターンが走るもの）に、画面に描かれた `❯ /code-review …` の行を、
+  // 打った文と順番（同じ文の n 番目どうし）で結び付ける。結び付くと、その描かれた id へ飛べ、読んでいる位置も追える。
+  const rebind = () => {
+    for (const [entryId, drawnId] of bindCommandRows(entries, commandRows)) {
+      drawn.set(rowKey(entryId), drawnId)
+      aliases.set(rowKey(drawnId), entryId)
+    }
+  }
+
+  // 描かれた行の文がコマンドか: 'command' / 'prompt' / 'unknown'（一覧に無い `/名前`）。
+  // 記録がコマンドの行と決めた文は、一覧からあとで消えても（または一覧が取れなくなっても）コマンドのまま。
+  const statusOf = (text: string): 'command' | 'prompt' | 'unknown' => {
+    if (!text.startsWith('/')) return 'prompt'
+    if (entries.some(entry => entry.command && entry.text === text)) return 'command'
+    if (!commandNames) return isCommandText(text, undefined) ? 'command' : 'prompt'
+    if (isCommandText(text, commandNames)) return 'command'
+    return slashName(text) === undefined ? 'prompt' : 'unknown'
+  }
+
+  // 画面に描かれた行を扱った結果: 読んでいる位置の報告（onScreen の cut）を流すか、並びが変わったか。
+  // `$` はフックと最上位の関数にしか渡せないので、続きの処理（afterReport・再描画）は呼び出し側が flushRows で行う。
+  type Out = { reported: boolean; cut: Shown | undefined; changed: boolean }
+  // 画面に描かれたコマンドの行を覚える（プロンプトとしては並べない）。
+  const takeCommandRow = (component: string, id: string, text: string, onScreen: { first: number } | null | undefined): Out => {
+    if (id === PROVISIONAL_ID) return { reported: false, cut: undefined, changed: false }
+    commandRows.set(id, text)
+    rebind()
+    return { reported: onScreen !== undefined, cut: onScreen === undefined ? undefined : see(component, id, onScreen), changed: false }
+  }
+  // 画面に描かれたプロンプトの行を並べる。
+  const takePromptRow = (component: string, id: string, text: string, onScreen: { first: number } | null | undefined): Out => {
+    const changed = listDrawn(id, text)
+    return { reported: onScreen !== undefined, cut: onScreen === undefined ? undefined : see(component, id, onScreen), changed }
+  }
+
+  // 取り直した一覧を受け取る（取れなければ undefined: isSlashCommand に戻す）。取り直す前に決められなかった行を決める。
+  const acceptCommands = (names: Set<string> | undefined): Out[] => {
+    commandNames = names
+    const outs: Out[] = []
+    for (const [id, row] of [...undecided]) {
+      undecided.delete(id)
+      outs.push(statusOf(row.text) === 'command' ? takeCommandRow('UserMessage', id, row.text, row.onScreen) : takePromptRow('UserMessage', id, row.text, row.onScreen))
+    }
+    rebind()
+    return outs
+  }
+
+  // 描かれたユーザーの行を、コマンドかプロンプトかに振り分ける。askRefresh: 一覧に無い名前なので取り直してほしい。
+  const takeUserRow = (id: string, text: string, onScreen: { first: number } | null | undefined): Out & { askRefresh: boolean } => {
+    const status = statusOf(text)
+    if (status === 'command') return { ...takeCommandRow('UserMessage', id, text, onScreen), askRefresh: false }
+    if (undecided.has(id)) {
+      undecided.set(id, { text, onScreen })
+      return { reported: false, cut: undefined, changed: false, askRefresh: false }
+    }
+    if (status === 'unknown' && Date.now() - unknownRefreshedAt >= UNKNOWN_REFRESH_MS) {
+      // 一覧に無い名前: 増えたばかりのコマンドかもしれないので、一度取り直してから決める。
+      unknownRefreshedAt = Date.now()
+      undecided.set(id, { text, onScreen })
+      return { reported: false, cut: undefined, changed: false, askRefresh: true }
+    }
+    return { ...takePromptRow('UserMessage', id, text, onScreen), askRefresh: false }
+  }
+
   // Whether the transcript read knows a drawn row, as a prompt or a reply.
   const isKnownRow = (key: string) => {
     const id = entryKeyOf(key)
@@ -1110,6 +1396,8 @@ export const register: Register = (on, options) => {
       await $.command.register({ name, description: way === 'next' ? '次のプロンプトへ飛ぶ（prompt-trail）' : '前のプロンプトへ飛ぶ（prompt-trail）', immediate: true })
     }
     isTerminal = e.surface === 'terminal'
+    // prompt-trail: コマンドの一覧は、セッション開始（プラグインの再読み込みのあとも）で取り直す。
+    await reloadCommands($, acceptCommands, settle, dropAbove, isDrawnStale)
     // Move a mode an earlier version stored into the setting, once. Writing
     // the setting reloads this module, so everything after it is best effort.
     const stored = await $.store.get(LEGACY_MODE_KEY)
@@ -1123,11 +1411,9 @@ export const register: Register = (on, options) => {
     if (isMode(kept)) mode = kept
     // Also fired after a hot reload, when the list starts empty: rebuild it from
     // the transcript this session's classic SessionStart remembered.
-    const transcriptPath = await rememberedTranscript($)
-    const index = transcriptPath === undefined ? undefined : await readTranscript($, transcriptPath, seen, index => {
-      if (merge(index)) void redrawRail($)
-    })
-    if (index && merge(index)) await redrawRail($)
+    // prompt-trail: 覚えていなければ（セッションの途中で読み込まれた、classic.* が届かない）、置き場所の決まりから探して覚える。
+    const transcriptPath = await transcriptPathOf($, place)
+    if (transcriptPath !== undefined) await readAndMerge($, seen, merge, transcriptPath)
     if (!isRunning) listedAtRest = entries.length
     // Unasked, the engine seats a pane only from 144 columns (110 once the
     // person has opened it with /prompt-trail); below that it waits undrawn.
@@ -1162,7 +1448,12 @@ export const register: Register = (on, options) => {
 
   on('command.run', async ($, e, next) => {
     const isStep = STEP_COMMANDS.some(([name]) => name === e.command)
-    if (!isStep && e.command !== 'prompt-trail') return next(e)
+    if (!isStep && e.command !== 'prompt-trail') {
+      const result = await next(e)
+      // prompt-trail: プラグイン・スキルの再読み込みで、コマンドの顔ぶれが変わる。
+      if (/^reload/.test(e.command)) await reloadCommands($, acceptCommands, settle, dropAbove, isDrawnStale)
+      return result
+    }
     const asked = isStep ? '' : e.args.trim()
     unring()
     // prompt-trail: help・fill・copy。
@@ -1188,8 +1479,8 @@ export const register: Register = (on, options) => {
         return {}
       }
       const entry = entries[index]
-      const target = entry && drawnRow(drawn, entry.id)
-      if (entry && target && (await jumpTo($, entry.id, target, unreachable, notices))) {
+      const target = entry && (await jumpFirst($, entry.id, targetsOf(entry), unreachable, notices))
+      if (entry && target) {
         const jump = landOn(entry.id, target, index)
         $.clock.after(SETTLE_MAX_MS, () => {
           jump.isSettled = true
@@ -1238,52 +1529,79 @@ export const register: Register = (on, options) => {
     for (const [name, id] of aliases) if (!ids.has(id)) aliases.delete(name)
     owners = new Map(index.owners.map(([id, i]) => [rowKey(id), rowKey(index.prompts[i]?.id ?? '')]))
     turns = new Map(index.prompts.map((entry, i) => [entry.id, index.turns[i] ?? emptyTurn()]))
+    replies = firstReplies(index)
+    rebind()
     return listed(entries) !== before.list || currentIndex() !== before.current
   }
 
+  // prompt-trail: このセッションのトランスクリプトの場所（transcriptPathOf）。
+  const place: Place = { at: undefined }
+
+  // A /clear starts the list over.
+  const clearList = () => {
+    entries = []
+    owners = new Map()
+    turns = new Map()
+    reported.clear()
+    ended.clear()
+    isRunning = false
+    onScreen.clear()
+    landed = undefined
+    reading = undefined
+    drawnCurrent = -1
+    unreachable.clear()
+    notices.isUnscrollableSaid = false
+    drawn.clear()
+    commandRows.clear()
+    undecided.clear()
+    replies = new Map()
+    drawnReplies.clear()
+    filed = new Set()
+    pending.clear()
+    aliases.clear()
+    waiting.clear()
+    provisional = undefined
+    lately = []
+    turnText = ''
+    starter = undefined
+    notifiedAt.clear()
+    delivered.clear()
+    Object.assign(seen, unseen())
+  }
+
   on('classic.SessionStart', async ($, e, next) => {
+    place.at = e.transcript_path
     if (e.source === 'clear') {
-      entries = []
-      owners = new Map()
-      turns = new Map()
-      reported.clear()
-      ended.clear()
-      isRunning = false
-      onScreen.clear()
-      landed = undefined
-      reading = undefined
-      drawnCurrent = -1
-      unreachable.clear()
-      notices.isUnscrollableSaid = false
-      drawn.clear()
-      filed = new Set()
-      pending.clear()
-      aliases.clear()
-      waiting.clear()
-      provisional = undefined
-      lately = []
-      turnText = ''
-      starter = undefined
-      notifiedAt.clear()
-      delivered.clear()
-      Object.assign(seen, unseen())
+      clearList()
       await redrawRail($)
     } else {
-      const index = await readTranscript($, e.transcript_path, seen, index => {
-      if (merge(index)) void redrawRail($)
-    })
-      if (index && merge(index)) await redrawRail($)
+      await readAndMerge($, seen, merge, e.transcript_path)
     }
     listedAtRest = entries.length
     await rememberTranscript($, e.session_id, e.transcript_path)
     return next(e)
   })
 
+  // prompt-trail: classic.SessionStart が届かない機械でも /clear（と、別のセッションへの切り替え）で並びを空にする。
+  // セッションの id が変わるので、次のターンでその id のトランスクリプトを探し直す。
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      clearList()
+      place.at = undefined
+      listedAtRest = 0
+      await redrawRail($)
+    }
+    return next(e)
+  })
+
   on('classic.Stop', async ($, e, next) => {
-    const index = await readTranscript($, e.transcript_path, seen, index => {
-      if (merge(index)) void redrawRail($)
-    })
-    if (index && merge(index)) await redrawRail($)
+    // prompt-trail: セッションの途中で読み込まれ、場所を探せなかったときは、ここで教わった場所を覚える
+    // （次に読み込み直されたとき、最初から全部を並べられるように）。
+    if (place.at !== e.transcript_path) {
+      place.at = e.transcript_path
+      if ((await rememberedTranscript($)) !== e.transcript_path) await rememberTranscript($, e.session_id, e.transcript_path)
+    }
+    await readAndMerge($, seen, merge, e.transcript_path)
     return next(e)
   })
 
@@ -1291,6 +1609,7 @@ export const register: Register = (on, options) => {
   // prompt's turn is running.
   on('turn.start', async ($, e, next) => {
     isRunning = true
+    await reloadCommands($, acceptCommands, settle, dropAbove, isDrawnStale)
     // The transcript follows the new turn down from the prompt jumped to.
     landed = undefined
     isContinuation = e.text.trim() === ''
@@ -1299,8 +1618,10 @@ export const register: Register = (on, options) => {
     lately = []
     // Every row of the turns before is stored by now: read them, so a row the
     // index does not know can only be this turn's (see currentIndex).
-    const index = seen.path
-      ? await readTranscript($, seen.path, seen, index => {
+    // prompt-trail: まだ読めていなければ、ここで場所を求める（classic.* が届かない機械や、始めたばかりのセッション）。
+    const path = seen.path || (await transcriptPathOf($, place))
+    const index = path
+      ? await readTranscript($, path, seen, index => {
           if (merge(index)) void redrawRail($)
         })
       : undefined
@@ -1320,7 +1641,10 @@ export const register: Register = (on, options) => {
   // the engine's figure and how the turn ended until a later read has them.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    const entry = turnEntry()
+    // prompt-trail: 打った文で始まったターンなのに、その文のプロンプトがまだ並んでいなければ（行が描かれる前に
+    // 取り消された、など）、どのプロンプトのものか分からないので記録しない。本家は最新のプロンプトに付けていた。
+    const isOwnerKnown = starter !== undefined || turnText === '' || entries.some(entry => entry.text === turnText)
+    const entry = isOwnerKnown ? turnEntry() : undefined
     if (e.agentId === undefined) {
       isRunning = false
       // A prompt still waiting now is queued behind this turn; its rows to
@@ -1339,6 +1663,12 @@ export const register: Register = (on, options) => {
         if (e.reason === 'aborted') ended.set(key, 'interrupted')
         if (e.reason === 'error') ended.set(key, 'error')
       }
+      // prompt-trail: classic.Stop が届かない機械でも、ターンの終わりに記録を読む（届くときは 2 度目の読みは
+      // ファイルが変わっていなければ何もしない）。
+      const path = await transcriptPathOf($, place)
+      if (path !== undefined) await readAndMerge($, seen, merge, path)
+      // 読んで並んだプロンプトも、休んでいる間の並びに数える（次のターンの「実行中」を読み違えない）。
+      if (!isRunning) listedAtRest = entries.length
       await redrawRail($)
     }
     return result
@@ -1348,7 +1678,10 @@ export const register: Register = (on, options) => {
   // before the stored one are pending (see listDrawn).
   on('prompt.submit', async ($, e, next) => {
     unring()
-    if (PROMPT_KINDS.has(e.origin.kind) && noteSent(e.text.replace(VIEW_CONTEXT, '').trim())) await redrawRail($)
+    // prompt-trail: 打つたびに一覧を取り直す（途中で足したコマンド・Mod が登録・解除したコマンドに追従）。
+    await reloadCommands($, acceptCommands, settle, dropAbove, isDrawnStale)
+    const sent = e.text.replace(VIEW_CONTEXT, '').trim()
+    if (PROMPT_KINDS.has(e.origin.kind) && statusOf(sent) !== 'command' && noteSent(sent)) await redrawRail($)
     return next(e)
   })
   on('session.receive', async ($, e, next) => {
@@ -1358,14 +1691,14 @@ export const register: Register = (on, options) => {
 
   // Record every prompt row as it is drawn, and which rows the viewport shows.
   on('ui.render', { component: 'UserMessage' }, ($, e, next) => {
-    // A slash command's row is drawn as a user row too; it is not a prompt.
+    // A slash command's row is drawn as a user row too.
+    // prompt-trail: コマンドの行は並べず、記録のコマンドの行との結び付け（rebind）に使う。
     const text = e.props.text.replace(VIEW_CONTEXT, '').trim()
-    if (PROMPT_KINDS.has(e.props.origin.kind) && text && !text.startsWith('/')) {
-      drawn.set(rowKey(e.requestId), e.requestId)
-      if (listDrawn(e.requestId, text)) redrawRailLater($)
-      if (e.props.onScreen !== undefined) {
-        afterReport($, settle, see(e.component, e.requestId, e.props.onScreen), dropAbove, isDrawnStale)
-      }
+    if (PROMPT_KINDS.has(e.props.origin.kind) && text) {
+      if (statusOf(text) !== 'command') drawn.set(rowKey(e.requestId), e.requestId)
+      const out = takeUserRow(e.requestId, text, e.props.onScreen)
+      flushRows($, [out], settle, dropAbove, isDrawnStale)
+      if (out.askRefresh) $.clock.after(0, () => void reloadCommands($, acceptCommands, settle, dropAbove, isDrawnStale))
     }
     return next(e)
   })
@@ -1374,6 +1707,7 @@ export const register: Register = (on, options) => {
   // answers. Tool rows are drawn under their tool_use id; a collapsed group
   // counts as its first call.
   on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
+    drawnReplies.set(rowKey(e.requestId), e.requestId)
     if (e.props.onScreen !== undefined) {
       afterReport($, settle, see(e.component, e.requestId, e.props.onScreen), dropAbove, isDrawnStale)
     }
@@ -1572,27 +1906,82 @@ export const register: Register = (on, options) => {
       const hidesAfter = first + capacity < entries.length
       const label = (i: number, room = width) => `#${i + 1} ${oneLine(entries[i]?.text ?? '', room - `#${i + 1} `.length)}`
       // The hovered prompt's card also sums up its turn.
-      // prompt-trail: カードの後ろに [ 入力欄へ ] [ コピー ] を置く（幅が足りなければ置かない）。
-      const hasActions = width - ACTIONS_CELLS >= CARD_TEXT_WITH_ACTIONS
-      const textCells = hasActions ? width - ACTIONS_CELLS : width
-      const card = (i: number, cells = textCells) => {
+      // prompt-trail: カードは `[ 入力欄へ ] [ コピー ] #3 本文…` の並び。ボタンを頭に置き、本文は残りの幅で切る
+      // （幅が足りなければボタンを置かない）。
+      const hasActions = width >= ACTIONS_CELLS + CARD_TEXT_WITH_ACTIONS
+      // 棒の、棒の行の中での桁（`‹` の分を含む）。見えている窓の外なら undefined。
+      const columnOf = (i: number) => (i >= first && i < first + capacity ? (isOverflowing ? 1 : 0) + i - first : undefined)
+      // ボタンの前に空ける幅: [ 入力欄へ ] のラベルの真ん中が棒の真上に来るように。右寄りの棒では、
+      // 本文に CARD_TEXT_WITH_ACTIONS を残すところまで左へ寄せる。
+      const leadOf = (i: number) =>
+        hasActions ? Math.max(0, Math.min((columnOf(i) ?? 0) - ACTIONS_LEAD_BACK, width - ACTIONS_CELLS - CARD_TEXT_WITH_ACTIONS)) : 0
+      // 左へ伸ばすカードの右端（棒の真上の桁の次）。右半分の棒で、本文に CARD_TEXT_WITH_ACTIONS 以上残るときだけ。
+      // 足りない棒（帯がせまい）は右へ伸ばす。
+      const leftEndOf = (i: number): number | undefined => {
+        const column = columnOf(i)
+        if (!isCellGrid || !hasActions || column === undefined) return undefined
+        const end = Math.min(width, column + 1)
+        return column * 2 >= width && end >= ACTIONS_CELLS_LEFT + CARD_TEXT_WITH_ACTIONS ? end : undefined
+      }
+      const card = (i: number, cells: number) => {
         const entry = entries[i]
         return entry ? `#${i + 1} ${withTurn(entry, cells - `#${i + 1} `.length)}` : ''
       }
       const actions = (i: number, suffix = '') =>
         hasActions
           ? [
-              <Text key={`gap-fill-${i}${suffix}`}> </Text>,
               <Button key={`fill-${i}${suffix}`} label={FILL_LABEL} onPress={() => {}} />,
-              <Text key={`gap-copy-${i}${suffix}`}> </Text>,
+              <Text key={`gap-fill-${i}${suffix}`}> </Text>,
               <Button key={`copy-${i}${suffix}`} label={COPY_LABEL} onPress={() => {}} />,
+              <Text key={`gap-copy-${i}${suffix}`}> </Text>,
             ]
           : []
+      // 1 行のカード: 空き（lead）・ボタン・本文。`cells` は行の幅（端末では本文を空白で埋めて、下の行を隠しきる）。
+      const cardRow = (i: number, cells: number, suffix = '', lead = 0, isPadded = false) => {
+        const leftEnd = isPadded ? leftEndOf(i) : undefined
+        const entry = entries[i]
+        if (leftEnd !== undefined && entry) {
+          // 左へ伸ばす: 空き・本文・補足・#n・ボタン・棒の右の空き。ボタンの右端が棒の真上。
+          const tag = ` #${i + 1} `
+          const body = `${withTurn(entry, leftEnd - ACTIONS_CELLS_LEFT - cellWidth(tag))}${tag}`
+          const gap = Math.max(0, leftEnd - ACTIONS_CELLS_LEFT - cellWidth(body))
+          return [
+            gap > 0 ? <Text key={`lead-${i}${suffix}`}>{' '.repeat(gap)}</Text> : null,
+            <Text key={`text-${i}${suffix}`} wrap="truncate-end">
+              {body}
+            </Text>,
+            <Button key={`fill-${i}${suffix}`} label={FILL_LABEL} onPress={() => {}} />,
+            <Text key={`gap-fill-${i}${suffix}`}> </Text>,
+            <Button key={`copy-${i}${suffix}`} label={COPY_LABEL} onPress={() => {}} />,
+            cells > leftEnd ? <Text key={`rest-${i}${suffix}`}>{' '.repeat(cells - leftEnd)}</Text> : null,
+          ]
+        }
+        const textCells = Math.max(8, cells - lead - (hasActions ? ACTIONS_CELLS : 0))
+        const text = card(i, textCells)
+        return [
+          lead > 0 ? <Text key={`lead-${i}${suffix}`}>{' '.repeat(lead)}</Text> : null,
+          ...actions(i, suffix),
+          <Text key={`text-${i}${suffix}`} wrap="truncate-end">
+            {isPadded ? padTo(text, textCells) : text}
+          </Text>,
+        ]
+      }
+      // prompt-trail: 棒と同じ桁に置く、ターンの結果の色の 1 マス。ホバーするとその棒も灯る（同じ組）。
+      const stripCell = (i: number) => {
+        const kind = kindAt(i)
+        return kind ? (
+          <Text key={`kind-${i}`} color={KIND_COLORS[kind]} hover={{ scope: `prompt-trail-${i}`, inverse: true }}>
+            {STRIP}
+          </Text>
+        ) : (
+          <Text key={`kind-${i}`}> </Text>
+        )
+      }
       const bars = [
         isOverflowing ? <Text dimColor>{first > 0 ? '‹' : ' '}</Text> : null,
         ...shown.map((entry, offset) => {
           const i = first + offset
-          return (
+          const jump = (
             <Button
               key={`jump-${i}`}
               plain
@@ -1603,24 +1992,30 @@ export const register: Register = (on, options) => {
               onPress={() => {}}
             />
           )
+          if (!isCellGrid) return jump
+          // prompt-trail: 端末では棒ごとに key 付きの Box（棒と、その下の色の 1 マス）を作り、そのカードを Box の中に
+          // 絶対配置で置く（文字の行へ 1 行上げ、行の左端まで戻す）。カードは key の無い Box で、ホバーは組（scope）でなく
+          // いちばん近い key 付きの Box（この棒の Box）に付く。絶対配置の Box の上のポインタは親の上と数えられるので、
+          // 棒・色の 1 マスからカードへ指を上げても、カードのボタンの上でも、カードは出たまま。ほかの棒に指が乗るか、
+          // 棒の Box とカードの外（帯の外、棒の右の空き）へ出ると消える。
+          const column = columnOf(i) ?? 0
+          return (
+            <Box key={`bar-${i}`} flexDirection="column">
+              {jump}
+              {isColored ? stripCell(i) : null}
+              <Box position="absolute" top={-1} left={-column} width={width} flexDirection="row" display="none" hover={{ display: 'flex' }}>
+                {cardRow(i, width, '', leadOf(i), true)}
+              </Box>
+            </Box>
+          )
         }),
         hidesAfter ? <Text dimColor>›</Text> : null,
       ]
-      // prompt-trail: 棒と同じ桁に、ターンの結果の色の 1 マスを並べる。ホバーするとその棒のカードが出る。
+      // デスクトップでは色の 1 マスを棒の下の行に並べる（端末では棒の Box の中）。
       const strip = isColored ? (
         <Box flexDirection="row">
           {isOverflowing ? <Text key="kind-left"> </Text> : null}
-          {shown.map((_, offset) => {
-            const i = first + offset
-            const kind = kindAt(i)
-            return kind ? (
-              <Text key={`kind-${i}`} color={KIND_COLORS[kind]} hover={{ scope: `prompt-trail-${i}`, inverse: true }}>
-                {STRIP}
-              </Text>
-            ) : (
-              <Text key={`kind-${i}`}> </Text>
-            )
-          })}
+          {shown.map((_, offset) => stripCell(first + offset))}
         </Box>
       ) : null
       if (!isCellGrid) {
@@ -1631,8 +2026,7 @@ export const register: Register = (on, options) => {
             <Box height={1} width={width}>
               {entries.map((_, i) => (
                 <Box key={`card-${i}`} flexDirection="row" display="none" hover={{ scope: `prompt-trail-${i}`, display: 'flex' }}>
-                  <Text wrap="truncate-end">{card(i)}</Text>
-                  {actions(i)}
+                  {cardRow(i, width)}
                 </Box>
               ))}
             </Box>
@@ -1654,20 +2048,12 @@ export const register: Register = (on, options) => {
             {shownRing === undefined ? (
               <Text dimColor wrap="truncate-end">{label(center)}</Text>
             ) : (
-              <Box flexDirection="row">
-                <Text wrap="truncate-end">{padTo(card(shownRing), textCells)}</Text>
-                {actions(shownRing, '-pin')}
-              </Box>
+              // prompt-trail: 押した棒（フォーカスの枠）のカード。ホバーのカードと同じ並び・同じ位置。
+              <Box flexDirection="row">{cardRow(shownRing, width, '-pin', leadOf(shownRing), true)}</Box>
             )}
-            {entries.map((_, i) => (
-              <Box key={`card-${i}`} position="absolute" top={0} left={0} flexDirection="row" display="none" hover={{ scope: `prompt-trail-${i}`, display: 'flex' }}>
-                <Text wrap="truncate-end">{padTo(card(i), textCells)}</Text>
-                {actions(i)}
-              </Box>
-            ))}
           </Box>
+          {/* prompt-trail: 棒の Box は棒と色の 1 マスの 2 行（色分けがオフなら棒の 1 行）。 */}
           <Box flexDirection="row">{bars}</Box>
-          {strip}
         </Box>,
       )
     }
@@ -1712,6 +2098,11 @@ export const register: Register = (on, options) => {
     deny: 'prompt-trail: 行はクリックで押す（フォーカスの枠は付けない）',
   }))
 
+  // prompt-trail: 飛び先の候補（前から試す）。ふつうのプロンプトは描かれた行。
+  // コマンドの行は、結び付いた描かれた `❯ /code-review …` の行、なければそのターンの最初の返事の行、
+  // どちらも無ければ記録の行の id（描かれていないので断られ、点線になる）。
+  const targetsOf = (entry: Entry): string[] => jumpTargets(entry, drawn, replies, drawnReplies)
+
   // Scroll from the press dispatch itself (a click).
   on('ui.press', { plugin: PLUGIN }, async ($, e, next) => {
     // prompt-trail: [ 入力欄へ ] [ コピー ]。棒の位置へは飛ばない。
@@ -1725,8 +2116,8 @@ export const register: Register = (on, options) => {
     const index = Number(/^jump-(\d+)/.exec(e.element)?.[1])
     unring()
     const entry = entries[index]
-    const target = entry && drawnRow(drawn, entry.id)
-    if (entry && target && (await jumpTo($, entry.id, target, unreachable, notices))) {
+    const target = entry && (await jumpFirst($, entry.id, targetsOf(entry), unreachable, notices))
+    if (entry && target) {
       const jump = landOn(entry.id, target, index)
       $.clock.after(SETTLE_MAX_MS, () => {
         jump.isSettled = true
