@@ -738,6 +738,7 @@ describe('返事まるごとコピー: Slack のボタン（書式付きと文�
 
 const mockSession = (on: On) => {
   mock.env(on, { HOME: '/home/me' })
+  on('fs.exists', () => ({ value: true }))
   on('session.cwd', () => ({ value: '/work/app' }))
   on('session.start', () => ({ cwd: '/work/app' }))
 }

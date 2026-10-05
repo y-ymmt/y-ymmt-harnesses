@@ -19,7 +19,7 @@ import { boxArt, mermaidText } from './mermaid'
 import type { OpenTarget } from './paths'
 import { editorUrl, makeLinker, makeResolver, parseOpenKey } from './paths'
 import type { Controls, CopyButton, Drawn } from './render'
-import { COPY, remember, renderBlocks, renderExpandedShell, renderOpenRow, renderReplyCopyRow, renderToolGroup, renderToolRow, renderTurnDuration, width } from './render'
+import { COPY, openTargets, remember, renderBlocks, renderExpandedShell, renderOpenRow, renderReplyCopyRow, renderToolGroup, renderToolRow, renderTurnDuration, width } from './render'
 import type { TranscriptRow } from './reply'
 import { findReply } from './reply'
 import { helpText, rtlShowcaseText, showcaseText } from './help'
@@ -223,6 +223,31 @@ const readControls = async ($: EngineInterface, e: { requestId: string }, blocks
   return makeControls($, e, view)
 }
 
+
+/** 「開く:」の行に出すファイルが実在するか。描き直しのたびに調べないよう、パスごとに少しの間覚えておく。 */
+const EXISTS_TTL_MS = 5_000
+const existsCache = new Map<string, { exists: boolean; at: number }>()
+
+async function existingFiles($: EngineInterface, paths: readonly string[]): Promise<Map<string, boolean>> {
+  const now = Date.now()
+  const out = new Map<string, boolean>()
+  await Promise.all(
+    [...new Set(paths)].map(async abs => {
+      const hit = existsCache.get(abs)
+      if (hit && now - hit.at < EXISTS_TTL_MS) return void out.set(abs, hit.exists)
+      let exists = false
+      try {
+        exists = await $.fs.exists(abs)
+      } catch {
+        exists = false
+      }
+      existsCache.set(abs, { exists, at: now })
+      out.set(abs, exists)
+    }),
+  )
+  return out
+}
+
 export const register: Register = (on, options) => {
   if (options.enabled === false) return
   const style = resolveStyle(options)
@@ -330,6 +355,7 @@ export const register: Register = (on, options) => {
     const columns = Math.max(20, (e.viewport?.columns ?? 100) - 4)
     const controls = await readControls($, e, blocks)
     const whole = await replyTexts($, s, e.props.text)
+    const known = await existingFiles($, openTargets(s, blocks).map(t => t.abs))
     return (
       <Box flexDirection="row">
         <Box width={2} flexShrink={0}>
@@ -337,7 +363,7 @@ export const register: Register = (on, options) => {
         </Box>
         <Box flexDirection="column" rowGap={1} flexGrow={1}>
           {drawMarkdown($, el, s, blocks, columns, controls)}
-          {renderOpenRow(el, s, blocks)}
+          {renderOpenRow(el, s, blocks, abs => known.get(abs) === true)}
           {whole ? renderReplyCopyRow(el, s.replyCopyFormats, whole, makeCopy($, el, { ...s, copyButtons: true }, clipboard)) : null}
         </Box>
       </Box>

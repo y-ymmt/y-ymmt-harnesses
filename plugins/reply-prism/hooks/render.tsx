@@ -95,9 +95,15 @@ export const openTargets = (style: Style, blocks: readonly Block[]): OpenTarget[
 }
 
 /** 返事の最後に足す「開く:」の行。押すとエディタで開くボタンを並べる（全画面表示の端末ではリンクのクリックが届かないため）。 */
-export const renderOpenRow = (el: ElementTable, style: Style, blocks: readonly Block[]): RenderElement | null => {
+export const renderOpenRow = (
+  el: ElementTable,
+  style: Style,
+  blocks: readonly Block[],
+  exists: (abs: string) => boolean = () => true,
+): RenderElement | null => {
   if (!style.openRow) return null
-  const targets = openTargets(style, blocks)
+  // 実在しないファイル（作業ディレクトリの外にあるファイルを相対パスで書いた、など）は出さない。押すとエディタが「存在しない」と言うだけなので。
+  const targets = openTargets(style, blocks).filter(t => exists(t.abs))
   if (targets.length === 0) return null
   const { Box, Text, Button } = el
   const shown = targets.slice(0, style.openRowMax)

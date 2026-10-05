@@ -32,6 +32,8 @@ const reply = (text: string, surface: 'terminal' | 'desktop' = 'terminal', reque
 /** セッションを始め、作業ディレクトリとホームを覚えさせる。 */
 const start = async ($: Dollar, on: On) => {
   mock.env(on, { HOME })
+  // 「開く:」の行は実在するファイルだけを出す。テストのパスは仮のものなので、/missing/ を含むもの以外は「ある」と答える。
+  on('fs.exists', (_, e) => ({ value: !e.path.includes('/missing/') }))
   on('session.cwd', () => ({ value: CWD }))
   on('session.start', () => ({ cwd: CWD }))
   await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
@@ -631,6 +633,15 @@ describe('8. 押してエディタで開くボタン', () => {
 
   const opens = async (ui: { findAll: (q: { type: 'Button' }) => Promise<{ key?: string; props: { label?: unknown } }[]> }) =>
     (await ui.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('open:'))
+
+  test('実在しないファイル（作業ディレクトリの外のファイルを相対パスで書いたなど）は「開く:」に出さない', async ($, on) => {
+    await start($, on)
+    const ui = await $.ui.mount(reply('`src/app.ts` と `missing/gone.ts` を見た'))
+    const labels = (await ui.findAll({ tag: 'Button' })).map(b => String(b.props['label'] ?? ''))
+    expect(labels.some(l => l.includes('app.ts'))).toBe(true)
+    expect(labels.some(l => l.includes('gone.ts'))).toBe(false)
+    await ui.unmount()
+  })
 
   test('key は行・桁・絶対パスを持ち、key だけから戻せる', () => {
     expect(openKey({ abs: '/w/a.ts', line: 12, col: 5 })).toBe('open:12:5:/w/a.ts')
