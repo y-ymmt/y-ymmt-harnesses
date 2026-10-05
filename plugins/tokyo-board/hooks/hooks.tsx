@@ -5,6 +5,7 @@
 // `bun test` したときも同じ組み方にするためのもの。
 import { isWithin, windowOf } from './window'
 import type { ShowWindow } from './window'
+import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import {
@@ -952,9 +953,8 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    // 下に居るもの（待機 Clawd や花火）は消さず、ボードの下に並べる。
+    // 帯を使う他のプラグインの描画は消さず、並び順（band.ts）どおりに積み直す。
     const beneath = await next(e)
-
 
     if (!board.isShown || e.props.hasSurvey) {
       return beneath
@@ -969,10 +969,10 @@ export const register: Register = (on, options) => {
      */
     const pressFace = (): void => undefined
 
-    // 帯のいちばん下（プロンプトのすぐ上）に置く出し入れボタン。ボードの有無で位置が動かない。
+    // ボードの下に置く出し入れボタン。ボードの有無で位置が動かない。
     const visible = isVisible(board) && PANEL_ROWS + 1 <= e.props.maxRows
     const toggle = (
-      <Box flexDirection="row">
+      <Box key={slotKey(BAND_ORDER.boardToggle, 'tokyo-board-toggle')} flexDirection="row">
         <Button
           key={TOGGLE_BUTTON}
           label={visible ? '天気・運行を隠す' : '天気・運行を表示'}
@@ -982,18 +982,15 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    // 出していないあいだ（隠した、または時間帯の外）はボタンだけ。下に居るものはそのまま並べる。
+    // 出していないあいだ（隠した、または時間帯の外）はボタンだけ。
     if (!visible) {
       if (e.props.maxRows < 2) {
         return beneath
       }
 
-      return beneath.type === 'engine' ? (
-        toggle
-      ) : (
-        <Box flexDirection="column">
-          {beneath}
-          {toggle}
+      return (
+        <Box key={BAND_STACK} flexDirection="column">
+          {stackBand(beneath, [toggle])}
         </Box>
       )
     }
@@ -1055,8 +1052,8 @@ export const register: Register = (on, options) => {
         ),
       )
 
-    return (
-      <Box flexDirection="column" width={width}>
+    const panels = (
+      <Box key={slotKey(BAND_ORDER.board, 'tokyo-board')} flexDirection="column" width={width}>
         <Box flexDirection="row" gap={GUTTER}>
           <Box flexDirection="column">{panelOf(panel, FORECAST_URL)}</Box>
           <Box flexDirection="column">
@@ -1120,8 +1117,12 @@ export const register: Register = (on, options) => {
             </Box>
           ) : null}
         </Box>
-        {beneath}
-        {toggle}
+      </Box>
+    )
+
+    return (
+      <Box key={BAND_STACK} flexDirection="column">
+        {stackBand(beneath, [panels, toggle])}
       </Box>
     )
   })

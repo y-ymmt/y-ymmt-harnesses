@@ -18,6 +18,7 @@ import {
   transcriptOf,
 } from './candidates'
 import type { Message } from './candidates'
+import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
 
 /** プラグイン名。ui.press の持ち主。 */
 const PLUGIN = 'next-prompts'
@@ -242,7 +243,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // 帯: 他のプラグインの描画は先に受け取り、候補の行をその上に置く。
+  // 帯: 他のプラグインの描画は先に受け取り、並び順（band.ts）どおりに積み直す。候補の行はいちばん下。
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const beneath = await next(e)
 
@@ -265,7 +266,7 @@ export const register: Register = (on, options) => {
 
     const { Box, Text, Button } = $.ui.resolve(e)
     const row = (
-      <Box flexDirection="row" flexWrap="wrap" columnGap={GAP}>
+      <Box key={slotKey(BAND_ORDER.nextPrompts, 'next-prompts')} flexDirection="row" flexWrap="wrap" columnGap={GAP}>
         <Text dimColor>{HEADING}</Text>
         {placed.map(item => (
           <Button key={`${BUTTON_PREFIX}${item.index}`} label={item.label} onPress={() => undefined} />
@@ -274,13 +275,10 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    // 入力バーのすぐ上（帯のいちばん下）に置く。帯を使う他のプラグインの描画はその上に並べる。
-    return beneath.type === 'engine' ? (
-      row
-    ) : (
-      <Box flexDirection="column">
-        {beneath}
-        {row}
+    // 入力バーのすぐ上（帯のいちばん下）に置く。どのプラグインが外側でも並びは band.ts の順になる。
+    return (
+      <Box key={BAND_STACK} flexDirection="column">
+        {stackBand(beneath, [row])}
       </Box>
     )
   })

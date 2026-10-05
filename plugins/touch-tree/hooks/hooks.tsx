@@ -10,6 +10,7 @@ import { applyTouches, canonical, countKinds, emptyRecord, normalizePath, readOf
 import type { Kind, Touching } from './record'
 import { lspCandidates, outputCandidates, planBash, readsOf, searchToolCandidates } from './scan'
 import { SYMBOLS, fitRow, forestOf, rowsOf } from './tree'
+import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
 
 /** プラグイン名。$.state と ui.press の持ち主。 */
 const PLUGIN = 'touch-tree'
@@ -461,8 +462,8 @@ export const register: Register = on => {
       </Box>
     )
   })
-  // プロンプトのすぐ上（帯のいちばん下）に開け閉めボタンを 1 行だけ固定で置く。
-  // 帯を使う他のプラグイン（tokyo-board など）の描画は先に受け取り、その下に並べる。
+  // プロンプトの上の帯に開け閉めボタンを 1 行だけ固定で置く。
+  // 帯を使う他のプラグインの描画は先に受け取り、並び順（band.ts）どおりに積み直す。
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const beneath = await next(e)
 
@@ -470,7 +471,7 @@ export const register: Register = on => {
 
     const { Box, Button } = $.ui.resolve(e)
     const button = (
-      <Box flexDirection="row">
+      <Box key={slotKey(BAND_ORDER.touchTreeToggle, 'touch-tree')} flexDirection="row">
         <Button
           key={TOGGLE_BUTTON}
           label={isPaneOpen ? 'touch-tree を閉じる' : 'touch-tree を開く'}
@@ -480,12 +481,9 @@ export const register: Register = on => {
       </Box>
     )
 
-    return beneath.type === 'engine' ? (
-      button
-    ) : (
-      <Box flexDirection="column">
-        {beneath}
-        {button}
+    return (
+      <Box key={BAND_STACK} flexDirection="column">
+        {stackBand(beneath, [button])}
       </Box>
     )
   })

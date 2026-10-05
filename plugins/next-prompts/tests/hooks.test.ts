@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 
 import { BUTTON_PREFIX, CONFIRM_MS, register } from '../hooks/hooks'
 import type { Message } from '../hooks/candidates'
+import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from '../hooks/band'
 
 type Element = { readonly type: string; readonly props: Record<string, unknown>; readonly children: readonly Node[] }
 type Node = Element | string
@@ -380,26 +381,43 @@ describe('押したとき', () => {
 })
 
 describe('帯の共存', () => {
-  /** 既存 2 プラグインの組み方（先に next を呼び、相手の描画の下に自分のボタンを足す）を写したもの。 */
+  /** 帯を使う他の 2 プラグインの組み方（先に next を呼び、band.ts の枠に入れて積み直す）を写したもの。 */
   type RenderHook = (e: unknown, next: (e: unknown) => Promise<Node>) => Promise<Node>
 
-  const toggle = (key: string): Element => ({ type: 'Box', props: { flexDirection: 'row' }, children: [{ type: 'Button', props: { key, label: key }, children: [] }] })
+  const stack = (beneath: Node, mine: Element[]): Element => ({ type: 'Box', props: { key: BAND_STACK, flexDirection: 'column' }, children: stackBand(beneath, mine) as Node[] })
+  const toggle = (key: string, order?: number): Element => ({
+    type: 'Box',
+    props: order === undefined ? { flexDirection: 'row' } : { key: slotKey(order, key), flexDirection: 'row' },
+    children: [{ type: 'Button', props: { key, label: key }, children: [] }],
+  })
   const tokyoBoard: RenderHook = async (e, next) => {
-    const beneath = await next(e)
-    const board: Element = { type: 'Box', props: { key: 'board' }, children: [{ type: 'Text', props: {}, children: ['天気・運行'] }] }
+    const board: Element = { type: 'Box', props: { key: slotKey(BAND_ORDER.board, 'tokyo-board') }, children: [{ type: 'Text', props: {}, children: ['天気・運行'] }] }
 
-    return { type: 'Box', props: { flexDirection: 'column' }, children: [board, beneath, toggle('board-toggle')] }
+    return stack(await next(e), [board, toggle('board-toggle', BAND_ORDER.boardToggle)])
   }
-  const touchTree: RenderHook = async (e, next) => {
+  const touchTree: RenderHook = async (e, next) => stack(await next(e), [toggle('touch-tree-toggle', BAND_ORDER.touchTreeToggle)])
+  /** この約束を知らない他所のプラグイン。受け取った描画の下に自分の行を足すだけ。 */
+  const stranger: RenderHook = async (e, next) => {
     const beneath = await next(e)
+    const row = toggle('stranger')
 
-    return beneath === ENGINE ? toggle('touch-tree-toggle') : { type: 'Box', props: { flexDirection: 'column' }, children: [beneath, toggle('touch-tree-toggle')] }
+    return beneath === ENGINE ? row : { type: 'Box', props: { flexDirection: 'column' }, children: [beneath, row] }
   }
 
   const permutations = <T,>(items: T[]): T[][] =>
     items.length <= 1 ? [items] : items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map(rest => [item, ...rest]))
+  /** 上から順に、帯の各行が何か（ボード / 各ボタン / 候補の行）。 */
+  const rowsOf = (drawn: Node): string[] =>
+    typeof drawn === 'string'
+      ? []
+      : drawn.children.map(child => {
+          if (textOf(child).includes('天気・運行')) return 'board'
+          const keys = buttons(child).map(b => String(b.props['key']))
 
-  test('どの読み込み順でも他の描画を消さない。next-prompts が外側（実機の順）なら候補の行が帯のいちばん下に来る', async () => {
+          return keys.some(k => k.startsWith(BUTTON_PREFIX)) ? 'next-prompts' : keys.join(',')
+        })
+
+  test('どの読み込み順でも、上からボード → touch-tree → 天気・運行 → 候補の行（入力欄のすぐ上）に並ぶ', async () => {
     const tb = boot()
 
     await tb.completeTurn()
@@ -415,22 +433,27 @@ describe('帯の共存', () => {
     for (const order of orders) {
       const chain = order.reduceRight<(e: unknown) => Promise<Node>>((next, [, hook]) => e => hook(e, next), async () => ENGINE)
       const drawn = await chain(tb.renderEvent())
-      const keys = buttons(drawn).map(b => String(b.props['key']))
       const name = order.map(([n]) => n).join(' > ')
 
-      expect(textOf(drawn), name).toContain('天気・運行')
-      expect(keys, name).toContain('board-toggle')
-      expect(keys, name).toContain('touch-tree-toggle')
+      expect(rowsOf(drawn), name).toEqual(['board', 'touch-tree-toggle', 'board-toggle', 'next-prompts'])
       expect(candidatesOf(drawn).length, name).toBe(4)
+    }
+  })
 
-      // プラグインは名前順に読まれ、先のものが外側になる（tokyo-board が touch-tree の外側にいることを実機で確認）。
-      // next-prompts はいちばん外側なので、帯のいちばん下（入力バーのすぐ上）に来る。
-      if (order[0]?.[0] === 'next-prompts') {
-        const firstCandidate = keys.findIndex(k => k.startsWith(BUTTON_PREFIX))
+  test('約束を知らないプラグインが混ざっても誰の行も消えない（知らない側の行は帯のいちばん上か、外側ならその下）', async () => {
+    const tb = boot()
 
-        expect(firstCandidate, name).toBeGreaterThan(keys.indexOf('board-toggle'))
-        expect(firstCandidate, name).toBeGreaterThan(keys.indexOf('touch-tree-toggle'))
-      }
+    await tb.completeTurn()
+    await settle()
+
+    const mine: RenderHook = (e, next) => tb.hook('ui.render')(tb.$, e, next) as Promise<Node>
+
+    for (const order of permutations([mine, tokyoBoard, touchTree, stranger])) {
+      const chain = order.reduceRight<(e: unknown) => Promise<Node>>((next, hook) => e => hook(e, next), async () => ENGINE)
+      const keys = buttons(await chain(tb.renderEvent())).map(b => String(b.props['key']))
+
+      for (const key of ['stranger', 'board-toggle', 'touch-tree-toggle']) expect(keys).toContain(key)
+      expect(keys.filter(k => k.startsWith(BUTTON_PREFIX)).length).toBe(4)
     }
   })
 
@@ -464,12 +487,14 @@ describe('帯の共存', () => {
 
     const drawn = (await tb.band()) as Element
 
-    expect(drawn.props['flexWrap']).toBe('wrap')
+    expect(drawn.props['key']).toBe(BAND_STACK)
+    expect(drawn.children.length).toBe(1)
+    expect((drawn.children[0] as Element).props['flexWrap']).toBe('wrap')
   })
 
   test('候補が無いときも行は残し（—）、下の描画はその上にそのまま並べる', async () => {
     const tb = boot()
-    const other = toggle('touch-tree-toggle')
+    const other = toggle('touch-tree-toggle', BAND_ORDER.touchTreeToggle)
     const drawn = await tb.band(other)
 
     expect(candidatesOf(drawn).length).toBe(0)
