@@ -240,6 +240,7 @@ prompt-trail の行（カードの行・棒・色の帯）は `BAND_ORDER.prompt
 - コマンドの行へ飛ぶ動き（描かれた行との結び付け・返事の行への切り替え）はテストの engine では確かめられない
   （Mod の `$.ui.scroll` に答えないため）。結び付けと飛び先の決め方は関数で試し、実際の飛びは画面で確かめる
 - ターンが走るコマンドの見分けは、Claude Code の今の版が記録に書く並び（コマンドの行 → 展開の行 → 返事）に頼っている
+- ほかのエージェントやセッションからの知らせ（`<agent-message>` / `<cross-session-message>` で始まる行）はプロンプトに数えない
 - 実行中の `queued_command`（ターン中に打って届いたプロンプト）は記録に印が無いので、`/名前` のあとが空白か行末の文はコマンドとして並べない
 
 ## 動作環境と確かめた範囲
@@ -276,7 +277,7 @@ hooks/index.tsx              フックと `$` を使う処理すべて          
 hooks/band.ts                帯の並び順の約束（4 プラグイン共通）             独自（tokyo-board などと同じ中身）
 hooks/trail.ts               fold・色分けの判定と色・拒否の文言・ヘルプ        独自
 types/index.d.ts             $.state の契約（prompt-trail.moved）            改変（名前だけ）
-tests/upstream.test.tsx      本家のテスト 110 件                              改変（下）
+tests/upstream.test.tsx      本家のテスト（`test(` が 110 個）                  改変（下）
 tests/trail.test.tsx         足した 5 つの機能と日本語化のテスト               独自
 LICENSE                      本家の MIT ライセンス                             本家のまま
 tsconfig.json                型の確認                                          独自（他のプラグインと同じ形）
@@ -285,6 +286,7 @@ tsconfig.json                型の確認                                       
 本家のテスト（`tests/upstream.test.tsx`）に入れた変更:
 
 - プラグイン名・コマンド名を `prompt-trail` に、英語の文言の期待値を日本語に
+- ボタンの key は一覧の添字でなくプロンプトの ID（`jump-<ID>`）に変えたので、期待値の key を ID（描いた行の `requestId`）に
 - 飛ぶボタン（`jump-*`）だけを数える（カードとペインに足したボタンを除く）
 - 帯の幅を 80 から 104 に（カードのボタンのぶん。カードの文字の幅は本家と同じ 76 マス）
 - 端末の帯のホバーのカードは棒の `Box`（`bar-<i>`）の中の key の無い `Box` になったので、`card-<i>` で探していた 2 件はそこから探す
@@ -295,7 +297,7 @@ tsconfig.json                型の確認                                       
 ## テスト・確認
 
 ```sh
-claude plugin test plugins/prompt-trail                 # 本家のテスト 110 件と、足した機能のテスト
+claude plugin test plugins/prompt-trail                 # 本家のテストと、足した機能のテスト（全件通ること）
 claude plugin validate plugins/prompt-trail --strict
 ```
 

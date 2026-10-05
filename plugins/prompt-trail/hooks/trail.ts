@@ -100,10 +100,6 @@ export const EDITING_TOOLS: Record<string, 'file_path' | 'notebook_path'> = {
   NotebookEdit: 'notebook_path',
 }
 
-/** 凡例（1 行）。 */
-export const legendLine = (): string =>
-  KIND_ORDER.map(kind => `${STRIP} ${KIND_WORDS[kind]}`).join('  ')
-
 /** 凡例（色の説明つき、ヘルプ用）。 */
 const LEGEND_ROWS: Record<Kind, string> = {
   running: '青: いま走っている',

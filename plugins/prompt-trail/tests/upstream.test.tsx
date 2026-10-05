@@ -47,13 +47,13 @@ test('the terminal dock draws a tick per prompt, other seats draw the text, pres
 
   const rail = await $.ui.mount({ plugin: 'prompt-trail', surface: 'terminal', component: 'Pane', requestId: 'prompt-trail', props: pane('dock') })
   expect((await jumps(rail)).map(b => b.props.label)).toEqual([' ─ ', ' ━ '])
-  expect((await rail.press({ key: 'jump-1' }))?.element).toBe('jump-1')
+  expect((await rail.press({ key: 'jump-m2' }))?.element).toBe('jump-m2')
   await rail.unmount()
 
   // The desktop has no band to reveal a card in, so its dock lists the text.
   const desktopDock = await $.ui.mount({ plugin: 'prompt-trail', surface: 'desktop', component: 'Pane', requestId: 'prompt-trail', props: pane('dock', 40) })
   expect((await jumps(desktopDock)).map(b => b.props.label)).toEqual(['─ first prompt', '━ second prompt'])
-  expect((await desktopDock.press({ key: 'jump-1' }))?.element).toBe('jump-1')
+  expect((await desktopDock.press({ key: 'jump-m2' }))?.element).toBe('jump-m2')
   await desktopDock.unmount()
 
   for (const surface of SURFACES) {
@@ -131,7 +131,7 @@ test('/prompt-trail horizontal draws a text line over one row of bars, heavy whe
   expect(line).toBeGreaterThanOrEqual(0)
   expect(line).toBeLessThan(drawn.findIndex((node: any) => node.type === 'Button'))
   expect((await hiddenCard(band, 0))?.props.display).toBe('none')
-  expect((await band.press({ key: 'jump-0' }))?.element).toBe('jump-0')
+  expect((await band.press({ key: 'jump-m1' }))?.element).toBe('jump-m1')
 })
 
 test('with no prompt on screen the text line shows the newest one and no bar is heavy', async ($, on) => {
@@ -170,8 +170,8 @@ test('the horizontal band rings its bars, starting on the one being read, and sh
   const band = await $.ui.mount({ plugin: 'prompt-trail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // The ring starts on the bar of the prompt being read.
   expect((await jumps(band)).map(b => b.props.autoFocus)).toEqual([undefined, true])
-  expect((await focus('prompt-trail', 'jump-0')).deny).toBeUndefined()
-  expect(moves).toEqual(['jump-0'])
+  expect((await focus('prompt-trail', 'jump-m1')).deny).toBeUndefined()
+  expect(moves).toEqual(['jump-m1'])
   // The text line follows the ring, not the prompt being read.
   expect(await band.find({ type: 'Text', text: /^#1 first prompt/ })).toBeDefined()
   expect(await band.find({ type: 'Text', text: /^#2 second prompt$/ })).toBeUndefined()
@@ -180,7 +180,7 @@ test('the horizontal band rings its bars, starting on the one being read, and sh
   expect(await band.find({ type: 'Text', text: /^#2 second prompt$/ })).toBeDefined()
   // Another plugin's element in the band moves it.
   await focus('survey', 'yes')
-  expect(moves).toEqual(['jump-0', 'yes'])
+  expect(moves).toEqual(['jump-m1', 'yes'])
 })
 
 // The desktop paints an absolutely placed card with no background of its own
@@ -209,7 +209,7 @@ test('on the desktop a ringed bar paints no card over the line a hovered one rev
   await drawPrompts($, on)
   await runCommand($, 'prompt-trail', 'horizontal')
   const band = await $.ui.mount({ plugin: 'prompt-trail', surface: 'desktop', component: 'AbovePrompt', props: BAND })
-  await $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin: 'prompt-trail', element: 'jump-0', origin: { kind: 'person' } })
+  await $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin: 'prompt-trail', element: 'jump-m1', origin: { kind: 'person' } })
   // The hidden card of the first prompt alone holds its text.
   expect((await band.findAll({ type: 'Text', text: /^#1 first prompt/ })).length).toBe(1)
   expect((await band.findAll({})).some((node: any) => isDimLabel(node, /^#2 second prompt$/))).toBe(true)
@@ -225,7 +225,7 @@ test('on the desktop the band keeps the focus ring off its bars, so a clicked ba
   await drawPrompts($, on)
   await runCommand($, 'prompt-trail', 'horizontal')
   await $.ui.mount({ plugin: 'prompt-trail', surface: 'desktop', component: 'AbovePrompt', props: BAND })
-  const ringed = await $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin: 'prompt-trail', element: 'jump-0', origin: { kind: 'person' } })
+  const ringed = await $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin: 'prompt-trail', element: 'jump-m1', origin: { kind: 'person' } })
   expect(ringed.deny).toBeDefined()
   expect(moves).toEqual([])
 })
@@ -275,7 +275,7 @@ test('the vertical pane keeps the focus ring off its rows, the engine\'s own sto
   await runCommand($, 'prompt-trail', 'vertical')
   // A ringed row beside the row under the pointer lights two rows at once;
   // a click still presses, and next and prev are the keyboard route.
-  const ringed = await $.ui.focus({ component: 'Pane', requestId: 'prompt-trail', plugin: 'prompt-trail', element: 'jump-0', origin: { kind: 'person' } })
+  const ringed = await $.ui.focus({ component: 'Pane', requestId: 'prompt-trail', plugin: 'prompt-trail', element: 'jump-m1', origin: { kind: 'person' } })
   expect(ringed.deny).toBeDefined()
   expect(moves).toEqual([])
   // The pane's close mark is the engine's, so the ring still reaches it.
@@ -966,26 +966,26 @@ const overflowBand = async ($: any, on: any, reading: number) => {
     await $.ui.mount({ plugin: 'prompt-trail', surface: 'terminal', component: 'UserMessage', requestId: `p${i}`, props: prompt(`prompt ${i}`, onScreen) })
   }
   const band = await $.ui.mount({ plugin: 'prompt-trail', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 14 } })
-  const lower = (await jumps(band)).map((b: any) => String(b.props.key)).filter((key: string) => /^jump-\d+$/.test(key))
+  const lower = (await jumps(band)).map((b: any) => String(b.props.key)).filter((key: string) => /^jump-p\d+$/.test(key))
   const marks = (await band.findAll({ type: 'Text' })).map((t: any) => t.text).filter((text: string) => text === '‹' || text === '›')
   return { lower, marks }
 }
 
 test('an overflowing horizontal rail keeps the prompt being read near the start', async ($, on) => {
   const { lower, marks } = await overflowBand($, on, 2)
-  expect(lower).toEqual(['jump-0', 'jump-1', 'jump-2', 'jump-3', 'jump-4', 'jump-5', 'jump-6', 'jump-7'])
+  expect(lower).toEqual(['jump-p0', 'jump-p1', 'jump-p2', 'jump-p3', 'jump-p4', 'jump-p5', 'jump-p6', 'jump-p7'])
   expect(marks).toEqual(['›'])
 })
 
 test('an overflowing horizontal rail centers the prompt being read', async ($, on) => {
   const { lower, marks } = await overflowBand($, on, 6)
-  expect(lower).toEqual(['jump-2', 'jump-3', 'jump-4', 'jump-5', 'jump-6', 'jump-7', 'jump-8', 'jump-9'])
+  expect(lower).toEqual(['jump-p2', 'jump-p3', 'jump-p4', 'jump-p5', 'jump-p6', 'jump-p7', 'jump-p8', 'jump-p9'])
   expect(marks).toEqual(['‹', '›'])
 })
 
 test('an overflowing horizontal rail keeps the prompt being read near the end', async ($, on) => {
   const { lower, marks } = await overflowBand($, on, 10)
-  expect(lower).toEqual(['jump-4', 'jump-5', 'jump-6', 'jump-7', 'jump-8', 'jump-9', 'jump-10', 'jump-11'])
+  expect(lower).toEqual(['jump-p4', 'jump-p5', 'jump-p6', 'jump-p7', 'jump-p8', 'jump-p9', 'jump-p10', 'jump-p11'])
   expect(marks).toEqual(['‹'])
 })
 
@@ -1377,7 +1377,7 @@ test('nothing the rail learns draws the transcript rows again', async ($, on) =>
   // The pane narrows, and a jump is refused for want of a drawn row.
   const rail = await $.ui.mount({ plugin: 'prompt-trail', surface: 'terminal', component: 'Pane', requestId: 'prompt-trail', props: pane('dock', 40) })
   await rail.redraw(pane('dock', 4))
-  await rail.press({ key: 'jump-0' })
+  await rail.press({ key: 'jump-u1' })
   await clock.settle()
   expect(disk.railRedraws).toBeGreaterThan(0)
   expect(disk.invalidations).toBe(0)

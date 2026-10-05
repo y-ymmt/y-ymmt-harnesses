@@ -118,6 +118,24 @@ type Entry = { id: string; text: string; command?: true }
 // groups; any other id (a tool_use id, the provisional one) as it is.
 export const rowKey = (id: string) => (UUID.test(id) ? id.slice(0, 24) : id)
 
+// prompt-trail: ボタンの key（`jump-<ID>`・`fill-<ID>`・`copy-<ID>`、あとに `-pin` などが付くことがある）から、
+// 押された時点の一覧でのそのプロンプトの添字を引く。一覧が組み替わっていても ID で引き直す。無ければ -1。
+export const indexOfElement = (entries: readonly Entry[], element: string | undefined, kind: 'fill' | 'copy' | 'jump'): number => {
+  const head = `${kind}-`
+  if (!element?.startsWith(head)) return -1
+  const rest = element.slice(head.length)
+  let found = -1
+  let length = -1
+  entries.forEach((entry, i) => {
+    const key = rowKey(entry.id)
+    if (key.length > length && (rest === key || rest.startsWith(`${key}-`))) {
+      found = i
+      length = key.length
+    }
+  })
+  return found
+}
+
 // prompt-trail: 記録のコマンドの行（ターンが走るもの）に、画面に描かれた `❯ /code-review …` の行を、
 // 打った文と順番（同じ文の n 番目どうし）で結び付ける。`rows` は描かれた id -> 打った文（描かれた順）。
 // 返すのは、記録の行の id -> 結び付いた描かれた id。
@@ -360,7 +378,7 @@ const parseRow = (line: string): any => {
         }
         if (block?.type === 'tool_use' && typeof block.id === 'string') {
           // prompt-trail: NotebookEdit は notebook_path にパスがある。
-          const field = EDITING_TOOLS[block.name] ?? 'file_path'
+          const field = (Object.hasOwn(EDITING_TOOLS, block.name) ? EDITING_TOOLS[block.name] : undefined) ?? 'file_path'
           const path = block.input?.[field]
           return [{ type: 'tool_use', id: block.id, name: block.name, input: typeof path === 'string' ? { file_path: path } : {} }]
         }
@@ -468,7 +486,7 @@ export const indexRows = (rows: any[]): TranscriptIndex => {
         owners.push([block.id, owner])
         turn.tools++
         const path = block.input?.file_path
-        if (block.name in EDITING_TOOLS && typeof path === 'string') {
+        if (Object.hasOwn(EDITING_TOOLS, block.name) && typeof path === 'string') {
           edits.set(block.id, { path, turn })
           if (!turn.files.includes(path)) turn.files.push(path)
         }
@@ -944,6 +962,8 @@ async function foundTranscript($: EngineInterface) {
 
 export const register: Register = (on, options) => {
   let entries: Entry[] = []
+  // ボタンの key に載せる、一覧の i 番目のプロンプトの ID（添字は組み替わるので key に使わない）。
+  const idOf = (i: number) => rowKey(entries[i]?.id ?? `#${i}`)
   // Assistant row key -> the key of the prompt it answers, from the transcript.
   let owners = new Map<string, string>()
   // Prompt id -> the turn it started, from the transcript.
@@ -1793,9 +1813,9 @@ export const register: Register = (on, options) => {
         <Box key={`rows-${i}`} flexDirection="column">
           {line}
           <Box flexDirection="row" paddingLeft={markCells + 2}>
-            <Button key={`fill-${i}`} label={FILL_LABEL} onPress={() => {}} />
+            <Button key={`fill-${idOf(i)}`} label={FILL_LABEL} onPress={() => {}} />
             <Text> </Text>
-            <Button key={`copy-${i}`} label={COPY_LABEL} onPress={() => {}} />
+            <Button key={`copy-${idOf(i)}`} label={COPY_LABEL} onPress={() => {}} />
           </Box>
         </Box>
       )
@@ -1811,7 +1831,7 @@ export const register: Register = (on, options) => {
             row(
               i,
               <Button
-                key={`jump-${i}`}
+                key={`jump-${rowKey(entry.id)}`}
                 plain
                 dimColor={i !== current}
                 label={
@@ -1835,7 +1855,7 @@ export const register: Register = (on, options) => {
           row(
             i,
             <Button
-              key={`jump-${i}`}
+              key={`jump-${rowKey(entry.id)}`}
               plain
               dimColor={i !== current}
               label={`${tick(i === current, isUnreachable(i))} ${oneLine(entry.text, width)}`}
@@ -1930,9 +1950,9 @@ export const register: Register = (on, options) => {
       const actions = (i: number, suffix = '') =>
         hasActions
           ? [
-              <Button key={`fill-${i}${suffix}`} label={FILL_LABEL} onPress={() => {}} />,
+              <Button key={`fill-${idOf(i)}${suffix}`} label={FILL_LABEL} onPress={() => {}} />,
               <Text key={`gap-fill-${i}${suffix}`}> </Text>,
-              <Button key={`copy-${i}${suffix}`} label={COPY_LABEL} onPress={() => {}} />,
+              <Button key={`copy-${idOf(i)}${suffix}`} label={COPY_LABEL} onPress={() => {}} />,
               <Text key={`gap-copy-${i}${suffix}`}> </Text>,
             ]
           : []
@@ -1950,9 +1970,9 @@ export const register: Register = (on, options) => {
             <Text key={`text-${i}${suffix}`} wrap="truncate-end">
               {body}
             </Text>,
-            <Button key={`fill-${i}${suffix}`} label={FILL_LABEL} onPress={() => {}} />,
+            <Button key={`fill-${idOf(i)}${suffix}`} label={FILL_LABEL} onPress={() => {}} />,
             <Text key={`gap-fill-${i}${suffix}`}> </Text>,
-            <Button key={`copy-${i}${suffix}`} label={COPY_LABEL} onPress={() => {}} />,
+            <Button key={`copy-${idOf(i)}${suffix}`} label={COPY_LABEL} onPress={() => {}} />,
             cells > leftEnd ? <Text key={`rest-${i}${suffix}`}>{' '.repeat(cells - leftEnd)}</Text> : null,
           ]
         }
@@ -1983,7 +2003,7 @@ export const register: Register = (on, options) => {
           const i = first + offset
           const jump = (
             <Button
-              key={`jump-${i}`}
+              key={`jump-${rowKey(entry.id)}`}
               plain
               dimColor={i !== current}
               label={bar(i === current, isUnreachable(i))}
@@ -2077,8 +2097,8 @@ export const register: Register = (on, options) => {
     // A page keeps a clicked bar's ring beside the hovered one: two lit at once.
     if (!isBandOnGrid) return { deny: 'prompt-trail: この表示面では棒はクリックで押す（フォーカスの枠は付けない）' }
     const result = await next(e)
-    const index = Number(/^jump-(\d+)/.exec(e.element ?? '')?.[1])
-    if (result.deny || !Number.isInteger(index)) return result
+    const index = indexOfElement(entries, e.element, 'jump')
+    if (result.deny || index < 0) return result
     unring()
     ringed = index
     ringFade = $.clock.after(RING_CARD_MS, () => {
@@ -2106,14 +2126,20 @@ export const register: Register = (on, options) => {
   // Scroll from the press dispatch itself (a click).
   on('ui.press', { plugin: PLUGIN }, async ($, e, next) => {
     // prompt-trail: [ 入力欄へ ] [ コピー ]。棒の位置へは飛ばない。
-    const action = /^(fill|copy)-(\d+)/.exec(e.element)
+    const action = /^(fill|copy)-/.exec(e.element)
     if (action) {
-      const index = Number(action[2])
-      if (action[1] === 'fill') await fillPrompt($, entries, index, fillHold)
-      else await copyPrompt($, entries, index, e.surface)
+      const kind = action[1] as 'fill' | 'copy'
+      const at = indexOfElement(entries, e.element, kind)
+      if (at < 0) {
+        // 押したあとに一覧が組み替わって、そのプロンプトが無くなった。
+        $.ui.toast('そのプロンプトは一覧にありません')
+        return next(e)
+      }
+      if (kind === 'fill') await fillPrompt($, entries, at, fillHold)
+      else await copyPrompt($, entries, at, e.surface)
       return next(e)
     }
-    const index = Number(/^jump-(\d+)/.exec(e.element)?.[1])
+    const index = indexOfElement(entries, e.element, 'jump')
     unring()
     const entry = entries[index]
     const target = entry && (await jumpFirst($, entry.id, targetsOf(entry), unreachable, notices))

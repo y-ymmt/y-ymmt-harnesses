@@ -1,7 +1,7 @@
 // prompt-trail が本家に足した 4 つの機能のテスト（帯の並び・入力欄へ/コピー・検索の揺れ・色分け）と、日本語化。
 import { describe, expect, mock, test, type FoundElement } from 'claude-code/testing'
 import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from '../hooks/band.ts'
-import { bindCommandRows, firstReplies, indexRows, jumpTargets, pickPrompt, turnLine } from '../hooks/index.tsx'
+import { bindCommandRows, firstReplies, indexOfElement, indexRows, jumpTargets, pickPrompt, turnLine } from '../hooks/index.tsx'
 import { KIND_COLORS, KIND_ORDER, MARK, STRIP, fold, helpText, commandRowText, holds, isCommandText, isSlashCommand, kindOf, slashName } from '../hooks/trail.ts'
 
 const PLUGIN = 'prompt-trail'
@@ -192,7 +192,7 @@ describe('帯の並び（band.ts）', () => {
     }
     await runCommand($, 'off')
     const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND })
-    expect(await band.find({ key: 'jump-0' })).toBeUndefined()
+    expect(await band.find({ key: 'jump-u1' })).toBeUndefined()
   })
 })
 
@@ -253,10 +253,10 @@ describe('入力欄へ・コピー', () => {
   test('ホバーのカードごとに [ 入力欄へ ] [ コピー ] があり、押すと入力欄に入れる（置き換え、送信はしない）', async ($, on) => {
     const w = world(on, TWO)
     const site = await band($)
-    expect(keysOf(await site.findAll({ type: 'Button' })).filter(k => /^(fill|copy)-/.test(k))).toEqual(['fill-0', 'copy-0', 'fill-1', 'copy-1'])
-    expect((await site.find({ key: 'fill-0' }))?.props.label).toBe('入力欄へ')
-    expect((await site.find({ key: 'copy-0' }))?.props.label).toBe('コピー')
-    await site.press({ key: 'fill-1' })
+    expect(keysOf(await site.findAll({ type: 'Button' })).filter(k => /^(fill|copy)-/.test(k))).toEqual(['fill-u1', 'copy-u1', 'fill-u2', 'copy-u2'])
+    expect((await site.find({ key: 'fill-u1' }))?.props.label).toBe('入力欄へ')
+    expect((await site.find({ key: 'copy-u1' }))?.props.label).toBe('コピー')
+    await site.press({ key: 'fill-u2' })
     // 改行もそのまま入れる。
     expect(w.fills).toEqual([{ text: 'second prompt\nwith a second line', mode: 'replace' }])
     expect(w.submits).toEqual([])
@@ -269,29 +269,29 @@ describe('入力欄へ・コピー', () => {
     const w = world(on, TWO)
     w.draft = 'いま打っている文'
     const site = await band($)
-    await site.press({ key: 'fill-0' })
+    await site.press({ key: 'fill-u1' })
     expect(w.fills).toEqual([])
     expect(w.toasts).toEqual(['入力欄に打ちかけの文があります。もう一度押すと置き換えます'])
     // 別のボタンでは確かめ直し。
-    await site.press({ key: 'fill-1' })
+    await site.press({ key: 'fill-u2' })
     expect(w.fills).toEqual([])
-    await site.press({ key: 'fill-1' })
+    await site.press({ key: 'fill-u2' })
     expect(w.fills).toEqual([{ text: 'second prompt\nwith a second line', mode: 'replace' }])
     // 入れた文（このセッションのプロンプト）のままなら、確かめずに置き換える。
-    await site.press({ key: 'fill-0' })
+    await site.press({ key: 'fill-u1' })
     expect(w.fills.at(-1)).toEqual({ text: 'first prompt', mode: 'replace' })
     // 待ちすぎたら確かめ直し。
     w.draft = '別の打ちかけ'
-    await site.press({ key: 'fill-1' })
+    await site.press({ key: 'fill-u2' })
     await clock.advance(6000)
-    await site.press({ key: 'fill-1' })
+    await site.press({ key: 'fill-u2' })
     expect(w.fills.length).toBe(2)
   })
 
   test('[ コピー ] はプロンプトの全文をコピーしてトーストで知らせる', async ($, on) => {
     const w = world(on, TWO)
     const site = await band($)
-    await site.press({ key: 'copy-1' })
+    await site.press({ key: 'copy-u2' })
     expect(w.copied).toEqual(['second prompt\nwith a second line'])
     expect(w.toasts).toEqual(['#2 をコピーしました'])
     expect(w.fills).toEqual([])
@@ -301,7 +301,7 @@ describe('入力欄へ・コピー', () => {
     const w = world(on, TWO)
     w.copyAnswer = { isCopied: false, reason: 'no-surface' }
     const site = await band($)
-    await site.press({ key: 'copy-0' })
+    await site.press({ key: 'copy-u1' })
     expect(w.toasts).toEqual(['コピーできませんでした（クリップボードのある画面がありません）'])
   })
 
@@ -309,14 +309,14 @@ describe('入力欄へ・コピー', () => {
     const clock = mock.clock(on)
     const w = world(on, TWO)
     const site = await band($)
-    expect(await site.find({ key: 'fill-0-pin' })).toBeUndefined()
+    expect(await site.find({ key: 'fill-u1-pin' })).toBeUndefined()
     // テストの engine は会話をスクロールしない（飛べたかどうかに関わらず、カードは残す）。
-    await site.press({ key: 'jump-0' })
-    expect(await site.find({ key: 'fill-0-pin' })).toBeDefined()
-    await site.press({ key: 'fill-0-pin' })
+    await site.press({ key: 'jump-u1' })
+    expect(await site.find({ key: 'fill-u1-pin' })).toBeDefined()
+    await site.press({ key: 'fill-u1-pin' })
     expect(w.fills).toEqual([{ text: 'first prompt', mode: 'replace' }])
     await clock.advance(8000)
-    expect(await site.find({ key: 'fill-0-pin' })).toBeUndefined()
+    expect(await site.find({ key: 'fill-u1-pin' })).toBeUndefined()
   })
 
   test('狭い帯ではカードにボタンを置かない（コマンドで使う）', async ($, on) => {
@@ -324,8 +324,8 @@ describe('入力欄へ・コピー', () => {
     await resume($)
     await runCommand($, 'horizontal')
     const site = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 50 } })
-    expect(await site.find({ key: 'fill-0' })).toBeUndefined()
-    expect(await site.find({ key: 'jump-0' })).toBeDefined()
+    expect(await site.find({ key: 'fill-u1' })).toBeUndefined()
+    expect(await site.find({ key: 'jump-u1' })).toBeDefined()
   })
 
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -339,12 +339,12 @@ describe('入力欄へ・コピー', () => {
       const placement = surface === 'terminal' ? 'dock' : 'inline'
       const site = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: PLUGIN, props: pane(placement, 40) })
       // 読んでいるのは 2 番目。
-      expect(keysOf(await site.findAll({ type: 'Button' })).filter(k => /^(fill|copy)-/.test(k))).toEqual(['fill-1', 'copy-1'])
-      await site.press({ key: 'jump-0' })
-      expect(keysOf(await site.findAll({ type: 'Button' })).filter(k => /^(fill|copy)-/.test(k))).toEqual(['fill-0', 'copy-0'])
-      await site.press({ key: 'copy-0' })
+      expect(keysOf(await site.findAll({ type: 'Button' })).filter(k => /^(fill|copy)-/.test(k))).toEqual(['fill-u2', 'copy-u2'])
+      await site.press({ key: 'jump-u1' })
+      expect(keysOf(await site.findAll({ type: 'Button' })).filter(k => /^(fill|copy)-/.test(k))).toEqual(['fill-u1', 'copy-u1'])
+      await site.press({ key: 'copy-u1' })
       expect(w.copied).toEqual(['first prompt'])
-      await site.press({ key: 'fill-0' })
+      await site.press({ key: 'fill-u1' })
       expect(w.fills).toEqual([{ text: 'first prompt', mode: 'replace' }])
     })
   }
@@ -584,7 +584,7 @@ describe('カードの位置とホバー', () => {
     world(on, TWO)
     const site = await band($)
     const card = await cardIn(site, 1)
-    expect(elementsOf(card).map(shapeOf)).toEqual(['fill-1', 'Text', 'copy-1', 'Text', 'Text'])
+    expect(elementsOf(card).map(shapeOf)).toEqual(['fill-u2', 'Text', 'copy-u2', 'Text', 'Text'])
     const text = elementsOf(card).at(-1)!
     expect(textOf(text).trimEnd()).toBe('#2 second prompt with a second line')
     // 本文は空白で埋めて行の残りを覆う（下の灰色の行が透けない）: ボタン 24 マス + 本文 = 行の幅。
@@ -598,7 +598,7 @@ describe('カードの位置とホバー', () => {
       const holder = await barBox(site, i)
       expect(holder?.type).toBe('Box')
       const [jump, strip, card] = elementsOf(holder)
-      expect(jump && shapeOf(jump)).toBe(`jump-${i}`)
+      expect(jump && shapeOf(jump)).toBe(`jump-u${i + 1}`)
       expect(strip?.type === 'Text' && textOf(strip)).toBe(STRIP)
       // 文字の行（1 行上）の左端から、行の幅いっぱい。ふだんは隠れていて、いちばん近い key 付きの Box（棒の Box）に
       // 指があるうち出る。カードの上の指も親（棒の Box）の上と数えられる。カード自身に key は無い（あると
@@ -625,7 +625,7 @@ describe('カードの位置とホバー', () => {
     // 棒の桁から 5 マス左: `[ 入力欄へ ]` の 6 マス目（ラベルの真ん中）が棒の真上。
     expect(leadIn(await cardIn(site, 12))).toBe(7)
     expect(leadIn(await cardIn(site, 40))).toBe(35)
-    expect(elementsOf(await cardIn(site, 40)).map(shapeOf)).toEqual(['Text', 'fill-40', 'Text', 'copy-40', 'Text', 'Text'])
+    expect(elementsOf(await cardIn(site, 40)).map(shapeOf)).toEqual(['Text', 'fill-p41', 'Text', 'copy-p41', 'Text', 'Text'])
   })
 
   test('帯の右半分の棒は左へ伸ばす: 本文・補足・#番号・ボタンの順で、[ コピー ] の右端が棒の真上', async ($, on) => {
@@ -634,7 +634,7 @@ describe('カードの位置とホバー', () => {
     const last = await cardIn(site, 59)
     expect(last?.props).toMatchObject({ left: -59, width: ROW })
     const parts = elementsOf(last)
-    expect(parts.map(shapeOf)).toEqual(['Text', 'Text', 'fill-59', 'Text', 'copy-59', 'Text'])
+    expect(parts.map(shapeOf)).toEqual(['Text', 'Text', 'fill-p60', 'Text', 'copy-p60', 'Text'])
     const [lead, body, , , , rest] = parts as [Drawn, Drawn, Drawn, Drawn, Drawn, Drawn]
     // 棒の桁は 59。ボタン 23 マスの右端がその桁（= 次の桁 60 の手前）で、右の空きが行の残りを覆う。
     const bodyCells = textOf(body).length
@@ -646,8 +646,8 @@ describe('カードの位置とホバー', () => {
   test('切り替えは「桁 × 2 が行の幅以上」かつ「右端 + 1 に ボタン 23 + 本文 30 が入る」: 51 は右へ、52 は左へ', async ($, on) => {
     world(on, prompts(60))
     const site = await band($)
-    expect(elementsOf(await cardIn(site, 51)).map(shapeOf)).toEqual(['Text', 'fill-51', 'Text', 'copy-51', 'Text', 'Text'])
-    expect(elementsOf(await cardIn(site, 52)).map(shapeOf)).toEqual(['Text', 'Text', 'fill-52', 'Text', 'copy-52', 'Text'])
+    expect(elementsOf(await cardIn(site, 51)).map(shapeOf)).toEqual(['Text', 'fill-p52', 'Text', 'copy-p52', 'Text', 'Text'])
+    expect(elementsOf(await cardIn(site, 52)).map(shapeOf)).toEqual(['Text', 'Text', 'fill-p53', 'Text', 'copy-p53', 'Text'])
   })
 
   test('棒が帯いっぱいに並ぶと、右端の棒のカードは本文が広い（ボタンの左に帯の桁 - 23 マス）', async ($, on) => {
@@ -658,7 +658,7 @@ describe('カードの位置とホバー', () => {
     const parts = elementsOf(card)
     const body = parts.find(node => node.type === 'Text' && textOf(node).includes('#150'))!
     expect(textOf(body).trimEnd()).toBe('prompt 150 #150')
-    const copy = parts.findIndex(node => shapeOf(node) === 'copy-149')
+    const copy = parts.findIndex(node => shapeOf(node) === 'copy-p150')
     const before = parts.slice(0, copy - 2).reduce((sum, node) => sum + textOf(node).length, 0)
     expect(before + 23).toBe(99)
   })
@@ -675,28 +675,28 @@ describe('カードの位置とホバー', () => {
   test('色分けがオフでも、カードは棒の Box の中', { options: { colors: false } }, async ($, on) => {
     world(on, TWO)
     const site = await band($)
-    expect(elementsOf(await barBox(site, 0)).map(shapeOf)).toEqual(['jump-0', 'Box'])
+    expect(elementsOf(await barBox(site, 0)).map(shapeOf)).toEqual(['jump-u1', 'Box'])
   })
 
   test('棒を押したあと残るカードも、ボタンが頭で棒の真上', async ($, on) => {
     mock.clock(on)
     world(on, prompts(20))
     const site = await band($)
-    await site.press({ key: 'jump-15' })
-    expect(await site.find({ key: 'fill-15-pin' })).toBeDefined()
+    await site.press({ key: 'jump-p16' })
+    expect(await site.find({ key: 'fill-p16-pin' })).toBeDefined()
     const line = elementsOf(await site.find({ key: slotKey(BAND_ORDER.promptTrail, PLUGIN) }))[0]
     const row = elementsOf(line)[0]
-    expect(elementsOf(row).map(shapeOf)).toEqual(['Text', 'fill-15-pin', 'Text', 'copy-15-pin', 'Text', 'Text'])
+    expect(elementsOf(row).map(shapeOf)).toEqual(['Text', 'fill-p16-pin', 'Text', 'copy-p16-pin', 'Text', 'Text'])
     expect(leadIn(row)).toBe(10)
   })
 
   test('デスクトップでも、カードの行はボタンが頭', async ($, on) => {
     world(on, TWO)
     const site = await band($, 'desktop')
-    const fill = await site.find({ key: 'fill-0' })
+    const fill = await site.find({ key: 'fill-u1' })
     expect(fill).toBeDefined()
-    const card = (await site.findAll({ type: 'Box' })).find((node: FoundElement) => elementsOf(node).some(child => shapeOf(child) === 'fill-0'))
-    expect(elementsOf(card).map(shapeOf)).toEqual(['fill-0', 'Text', 'copy-0', 'Text', 'Text'])
+    const card = (await site.findAll({ type: 'Box' })).find((node: FoundElement) => elementsOf(node).some(child => shapeOf(child) === 'fill-u1'))
+    expect(elementsOf(card).map(shapeOf)).toEqual(['fill-u1', 'Text', 'copy-u1', 'Text', 'Text'])
   })
 })
 
@@ -1107,5 +1107,72 @@ describe('サブエージェントの報告は履歴に出さない', () => {
     const index = indexRows(rows)
 
     expect(index.prompts.map(p => p.text)).toEqual(['直して'])
+  })
+})
+
+describe('ボタンの key は一覧の添字でなくプロンプトの ID', () => {
+  const e = (id: string): Entry => ({ id, text: id })
+
+  test('key から、押した時点の一覧でのそのプロンプトを引き直す（組み替わっても別のプロンプトにならない）', () => {
+    const before = [e('u1'), e('u2'), e('u3')]
+    expect(indexOfElement(before, 'fill-u2', 'fill')).toBe(1)
+    // 先頭が消えた（/rewind など）。同じ key は、同じプロンプトを指す。
+    const after = [e('u2'), e('u3')]
+    expect(indexOfElement(after, 'fill-u2', 'fill')).toBe(0)
+    expect(indexOfElement(after, 'copy-u3-pin', 'copy')).toBe(1)
+    expect(indexOfElement(after, 'jump-u3', 'jump')).toBe(1)
+    // 消えたプロンプトは見つからない。種類が違う key も拾わない。
+    expect(indexOfElement(after, 'fill-u1', 'fill')).toBe(-1)
+    expect(indexOfElement(after, 'fill-u2', 'copy')).toBe(-1)
+    expect(indexOfElement(after, undefined, 'jump')).toBe(-1)
+  })
+
+  test('UUID の ID は rowKey（先頭 4 グループ）で引く。ID が別の ID の前半でも取り違えない', () => {
+    const uuid = '0a1b2c3d-1111-2222-3333-444455556666'
+    expect(indexOfElement([e(uuid)], `jump-${uuid.slice(0, 24)}`, 'jump')).toBe(0)
+    expect(indexOfElement([e('a'), e('a-b')], 'fill-a-b', 'fill')).toBe(1)
+    expect(indexOfElement([e('a'), e('a-b')], 'fill-a-b-pin', 'fill')).toBe(1)
+    expect(indexOfElement([e('a'), e('a-b')], 'fill-a-pin', 'fill')).toBe(0)
+  })
+
+  test('ボタンの key に ID が載り、一覧の順が変わっても key は同じプロンプトに付く', async ($, on) => {
+    const w = world(on, TWO)
+    await resume($)
+    await runCommand($, 'horizontal')
+    const site = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    expect(keysOf(await site.findAll({ type: 'Button' })).filter(k => /^jump-/.test(k))).toEqual(['jump-u1', 'jump-u2'])
+    w.transcript = jsonl([
+      { type: 'user', uuid: 'u1', message: { role: 'user', content: 'first prompt' } },
+      { type: 'user', uuid: 'u2', message: { role: 'user', content: 'second prompt\nwith a second line' } },
+      { type: 'user', uuid: 'u3', message: { role: 'user', content: 'third prompt' } },
+    ])
+    w.mtimeMs = 2
+    await $.classic.Stop({ session_id: 's1', transcript_path: '/t/s1.jsonl', stop_hook_active: false } as any)
+    await site.press({ key: 'fill-u3' })
+    expect(w.fills).toEqual([{ text: 'third prompt', mode: 'replace' }])
+  })
+})
+
+describe('記録の読み方の細部', () => {
+  const user = (uuid: string, content: string) => ({ type: 'user', uuid, message: { role: 'user', content } })
+  const parsed = (rows: Record<string, unknown>[]) => JSON.parse(`[${jsonl(rows).split('\n').join(',')}]`)
+  const tool = (uuid: string, name: string) => ({
+    type: 'assistant',
+    uuid,
+    message: { role: 'assistant', content: [{ type: 'tool_use', id: `t-${uuid}`, name, input: { file_path: '/w/a.ts' } }] },
+  })
+
+  test('ツール名が Object のプロトタイプのキー（toString・constructor）でも、編集には数えない', () => {
+    const index = indexRows(parsed([user('u1', 'go'), tool('a1', 'toString'), tool('a2', 'constructor'), tool('a3', 'Edit')]))
+    expect(index.turns[0]?.files).toEqual(['/w/a.ts'])
+    expect(index.turns[0]?.tools).toBe(3)
+    const none = indexRows(parsed([user('u1', 'go'), tool('a1', 'toString'), tool('a2', 'hasOwnProperty')]))
+    expect(none.turns[0]?.files).toEqual([])
+  })
+
+  test('ターン中に打って届いたプロンプト（queued_command）は、`/名前` のあとが空白か行末の文だけコマンド扱いで並べない（README の限界）', () => {
+    const queued = (uuid: string, prompt: string) => ({ type: 'attachment', uuid, attachment: { type: 'queued_command', prompt } })
+    const index = indexRows(parsed([user('u1', 'go'), queued('q1', '先に直して'), queued('q2', '/tmp のログを見て'), queued('q3', '/Users/me/app を直して'), queued('q4', '/compact')]))
+    expect(index.prompts.map(p => p.text)).toEqual(['go', '先に直して', '/Users/me/app を直して'])
   })
 })
