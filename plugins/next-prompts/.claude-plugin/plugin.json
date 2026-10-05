@@ -26,6 +26,20 @@
       "title": "候補を作るモデル",
       "description": "エイリアス（haiku など）か完全なモデル ID",
       "default": "haiku"
+    },
+    "digitSelect": {
+      "type": "boolean",
+      "title": "数字キーで選ぶ",
+      "description": "空の入力欄に候補の番号の数字を 1 つ打って少し待つと、その候補に置き換える（候補に番号を付けて出す）。続けて打てばそのまま入る",
+      "default": true
+    },
+    "digitDelayMs": {
+      "type": "number",
+      "title": "数字を打ってから置き換えるまでの時間（ミリ秒）",
+      "description": "この間に何か打てば置き換えない",
+      "default": 800,
+      "min": 200,
+      "max": 3000
     }
   }
 }

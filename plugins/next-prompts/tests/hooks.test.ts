@@ -5,7 +5,7 @@
  */
 import { beforeAll, describe, expect, test } from 'bun:test'
 
-import { BUTTON_PREFIX, CONFIRM_MS, register } from '../hooks/hooks'
+import { BUTTON_PREFIX, CONFIRM_MS, DIGIT_DELAY_MS, register } from '../hooks/hooks'
 import type { Message } from '../hooks/candidates'
 import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from '../hooks/band'
 
@@ -49,6 +49,8 @@ function boot(options: Record<string, unknown> = {}, store: Map<string, unknown>
     messages: CONVERSATION as unknown,
     draft: '',
     now: 1_000_000,
+    slept: 0,
+    sleepers: [] as (() => void)[],
     reply: (async () => ({ isAnswered: true, text: '["テストも追加して","コミットして","差分を見せて","別の画面も確認して"]', usage: {} })) as (
       request: Record<string, unknown>,
       options: { signal?: AbortSignal },
@@ -72,7 +74,7 @@ function boot(options: Record<string, unknown> = {}, store: Map<string, unknown>
         return { isFilled: true, text: env.draft, cursor: env.draft.length }
       },
     },
-    clock: { now: async () => env.now },
+    clock: { now: async () => env.now, sleep: (ms: number) => ((env.slept += ms), new Promise<void>(resolve => void env.sleepers.push(resolve))) },
     store: { get: async (key: string) => store.get(key), set: async (key: string, value: unknown) => void store.set(key, value) },
     ui: {
       resolve: () => ({ Box: 'Box', Text: 'Text', Button: 'Button' }),
@@ -116,7 +118,8 @@ const settle = async () => {
 
 const flatten = (node: Node): Element[] => (typeof node === 'string' ? [] : [node, ...node.children.flatMap(flatten)])
 const buttons = (node: Node) => flatten(node).filter(el => el.type === 'Button')
-const labels = (node: Node) => buttons(node).map(el => String(el.props['label']))
+/** ボタンの文字（頭の番号 `1 ` は外す。番号そのものは「数字キーで選ぶ」で確かめる）。 */
+const labels = (node: Node) => buttons(node).map(el => String(el.props['label']).replace(/^[1-9] /, ''))
 const textOf = (node: Node): string => (typeof node === 'string' ? node : node.children.map(textOf).join(''))
 /** 候補のボタンだけ（切り替えボタンなど他のプラグインのものを除く）。 */
 const candidatesOf = (node: Node) => buttons(node).filter(el => String(el.props['key']).startsWith(BUTTON_PREFIX))
@@ -385,6 +388,108 @@ describe('押したとき', () => {
   })
 })
 
+describe('数字キーで選ぶ', () => {
+  /** 入力欄への 1 回の編集。core は打った文字を足し、入力欄（env.draft）もそうなる。 */
+  const edit = (tb: ReturnType<typeof boot>, text: string, inputText: string) =>
+    tb.emit('prompt.edit', { origin: { kind: 'composer' }, text, cursor: text.length, start: text.length, end: text.length, inputText }, (e: unknown) => {
+      const x = e as { text: string; inputText: string }
+
+      tb.env.draft = x.text + x.inputText
+
+      return { text: tb.env.draft, cursor: tb.env.draft.length }
+    }) as Promise<{ text: string; cursor: number }>
+  /** 待ち時間が過ぎたことにする。 */
+  const wake = async (tb: ReturnType<typeof boot>) => {
+    const sleepers = tb.env.sleepers.splice(0)
+
+    for (const resolve of sleepers) resolve()
+    await settle()
+  }
+  const ready = async (options: Record<string, unknown> = {}) => {
+    const tb = boot(options)
+
+    await tb.completeTurn()
+    await settle()
+    await tb.band()
+
+    return tb
+  }
+
+  test('候補に番号が付く', async () => {
+    const tb = await ready()
+
+    expect(candidatesOf(await tb.band()).map(b => String(b.props['label']))).toEqual(['1 テストも追加して', '2 コミットして', '3 差分を見せて', '4 別の画面も確認して'])
+  })
+
+  test('空の入力欄に数字を 1 つ打って待つと、その候補に置き換わる。待っている間はその候補が目立つ', async () => {
+    const tb = await ready()
+
+    expect((await edit(tb, '', '2')).text, '打った数字はまず入る').toBe('2')
+    expect(tb.env.slept).toBe(DIGIT_DELAY_MS)
+    expect(candidatesOf(await tb.band())[1]?.props['variant']).toBe('primary')
+    expect(tb.calls.fills).toEqual([])
+
+    await wake(tb)
+    expect(tb.calls.fills).toEqual([{ text: 'コミットして', mode: 'replace' }])
+    expect(candidatesOf(await tb.band())[1]?.props['variant'], '入れたら目立たせるのをやめる').toBeUndefined()
+  })
+
+  test('続けて打てば置き換えない（11、1番で、消した）', async () => {
+    for (const [next, expected] of [['1', '11'], ['番', '1番']] as const) {
+      const tb = await ready()
+
+      await edit(tb, '', '1')
+      expect((await edit(tb, '1', next)).text).toBe(expected)
+      expect(candidatesOf(await tb.band())[0]?.props['variant'], `${expected}: 目立たせるのをやめる`).toBeUndefined()
+      await wake(tb)
+      expect(tb.calls.fills, expected).toEqual([])
+    }
+
+    const tb = await ready()
+
+    await edit(tb, '', '1')
+    tb.env.draft = ''
+    await wake(tb)
+    expect(tb.calls.fills, '待つ間に消した').toEqual([])
+  })
+
+  test('空でない入力欄・候補の数を超える番号・作業中では待たない', async () => {
+    const tb = await ready()
+
+    await edit(tb, 'abc', '2')
+    await edit(tb, '', '9')
+    expect(tb.env.slept).toBe(0)
+
+    await tb.startTurn()
+    await edit(tb, '', '1')
+    expect(tb.env.slept).toBe(0)
+  })
+
+  test('全角の数字でも選べる。待ち時間は digitDelayMs で変えられる（200〜3000 に収める）', async () => {
+    const tb = await ready({ digitDelayMs: 1500 })
+
+    await edit(tb, '', '３')
+    expect(tb.env.slept).toBe(1500)
+    await wake(tb)
+    expect(tb.calls.fills).toEqual([{ text: '差分を見せて', mode: 'replace' }])
+
+    const fast = await ready({ digitDelayMs: 10 })
+
+    await edit(fast, '', '1')
+    expect(fast.env.slept).toBe(200)
+  })
+
+  test('digitSelect: false なら番号を付けず、数字はふつうに入る', async () => {
+    const tb = await ready({ digitSelect: false })
+
+    expect(String(candidatesOf(await tb.band())[0]?.props['label'])).toBe('テストも追加して')
+    await edit(tb, '', '1')
+    await wake(tb)
+    expect(tb.env.slept).toBe(0)
+    expect(tb.calls.fills).toEqual([])
+  })
+})
+
 describe('再開したセッション', () => {
   test('作った候補を保存し、同じ会話を再開したら最初の描画で出し直す', async () => {
     const store = new Map<string, unknown>()
@@ -399,7 +504,7 @@ describe('再開したセッション', () => {
 
     expect(candidatesOf(await resumed.band()).length, '最初の描画では読み戻しにいくだけ').toBe(0)
     await settle()
-    expect(candidatesOf(await resumed.band()).map(b => b.props['label'])).toEqual(['テストも追加して', 'コミットして', '差分を見せて', '別の画面も確認して'])
+    expect(labels(await resumed.band()).filter(l => !l.startsWith('touch'))).toEqual(['テストも追加して', 'コミットして', '差分を見せて', '別の画面も確認して'])
     expect(resumed.calls.complete, 'モデルは呼ばない').toEqual([])
   })
 
@@ -501,7 +606,7 @@ describe('帯の共存', () => {
     const allowed: Record<string, string[]> = {
       Box: ['flexDirection', 'flexWrap', 'columnGap', 'key'],
       Text: ['dimColor'],
-      Button: ['key', 'label', 'onPress'],
+      Button: ['key', 'label', 'onPress', 'variant'],
     }
 
     tb.env.reply = async () => ({ isAnswered: true, text: JSON.stringify(['あ'.repeat(150), 'b', 'c', 'd']), usage: {} })

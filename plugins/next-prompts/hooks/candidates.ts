@@ -346,6 +346,15 @@ export function mergeCandidates(suggestion: string | null, generated: readonly s
   return uniqueCandidates(suggestion === null ? generated : [suggestion, ...generated], count, [last])
 }
 
+/**
+ * 押された数字（半角・全角の 1〜9）を 1 始まりの番号にする。数字 1 文字でなければ null。
+ */
+export function digitOf(text: string): number | null {
+  const match = /^[1-9１-９]$/u.exec(text)
+
+  return match === null ? null : Number(text.normalize('NFKC'))
+}
+
 /** 端末で 2 セル使う文字か（CJK・全角・絵文字のおおまかな範囲）。 */
 function isWide(code: number): boolean {
   return (
@@ -410,14 +419,20 @@ export function labelLimitOf(columns: number): number {
  * 帯に並べるラベルを決める。見出しのあとに順に詰め、`maxLines` 行に収まらない候補は出さない
  * （flexWrap が折り返すのと同じ詰め方）。返すのは出す候補の元の位置とラベル。
  */
-export function layoutLabels(candidates: readonly string[], columns: number, maxLines = 2): { index: number; label: string }[] {
-  const limit = labelLimitOf(columns)
+export function layoutLabels(
+  candidates: readonly string[],
+  columns: number,
+  maxLines = 2,
+  isNumbered = false,
+): { index: number; label: string }[] {
+  const limit = labelLimitOf(columns) - (isNumbered ? 2 : 0)
   const out: { index: number; label: string }[] = []
   let line = 1
   let used = cellWidth(HEADING)
 
   for (const [index, text] of candidates.entries()) {
-    const label = truncateLabel(text, limit)
+    // 番号つきなら頭に `1 ` を付ける（数字キー 2 回で選べる候補は 9 番まで）。
+    const label = isNumbered && index < 9 ? `${index + 1} ${truncateLabel(text, limit)}` : truncateLabel(text, limit)
     const width = cellWidth(label) + BUTTON_CHROME
 
     if (used + GAP + width > columns) {

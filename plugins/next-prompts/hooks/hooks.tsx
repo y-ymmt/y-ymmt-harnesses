@@ -8,6 +8,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import {
   HEADING,
   GAP,
+  digitOf,
   fingerprintOf,
   lastUserText,
   layoutLabels,
@@ -48,6 +49,9 @@ const TIMEOUT_MS = 20_000
 /** 打ちかけの文があるとき、2 回目の押し込みを待つ時間。 */
 export const CONFIRM_MS = 5_000
 
+/** 空の入力欄に数字を 1 つ打ってから、その番号の候補に置き換えるまでの既定の待ち時間。 */
+export const DIGIT_DELAY_MS = 800
+
 /** 帯の状態。描き直しのたびに読む（モジュール変数: 読み込み直しで消えてよい一時的なもの）。 */
 type View = {
   /** idle: 何も出さない / thinking: 考え中 / ready: 出来た（空なら出さない）。 */
@@ -62,6 +66,8 @@ type View = {
   shown: string[]
   /** 打ちかけの文があって 1 回目を受けたボタン。 */
   armed: { element: string; until: number } | null
+  /** 空の入力欄に数字を 1 つ打ったところ（置き換えを待っている候補の位置と、待つ期限）。 */
+  pending: { index: number; until: number } | null
   /** メインのターンが走っているか。 */
   isRunning: boolean
   /** 保存した候補を読み戻しにいったか（セッションの始まりに 1 回だけ）。 */
@@ -76,6 +82,12 @@ function countOf(value: unknown): number {
   const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 4
 
   return Math.max(3, Math.min(6, n))
+}
+
+function delayOf(value: unknown): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : DIGIT_DELAY_MS
+
+  return Math.max(200, Math.min(3_000, n))
 }
 
 function modelOf(value: unknown): string {
@@ -240,7 +252,12 @@ async function choose($: EngineInterface, view: View, element: string): Promise<
  */
 export const register: Register = (on, options) => {
   const isEnabled = booleanOf(options['enabled'], true)
-  const settings = { count: countOf(options['count']), model: modelOf(options['model']) }
+  const settings = {
+    count: countOf(options['count']),
+    model: modelOf(options['model']),
+    digitSelect: booleanOf(options['digitSelect'], true),
+    digitDelayMs: delayOf(options['digitDelayMs']),
+  }
   const view: View = {
     phase: 'idle',
     generated: [],
@@ -248,6 +265,7 @@ export const register: Register = (on, options) => {
     lastPrompt: '',
     shown: [],
     armed: null,
+    pending: null,
     isRunning: false,
     isRestoreTried: false,
   }
@@ -264,6 +282,7 @@ export const register: Register = (on, options) => {
     view.suggestion = null
     view.shown = []
     view.armed = null
+    view.pending = null
   }
 
   // 次のターンが始まったら候補を消す。
@@ -317,6 +336,46 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // 数字キーで選ぶ: 空の入力欄に候補の番号の数字を 1 つ打ち、そのまま settings.digitDelayMs 待つと、その候補に置き換える。
+  // 続けて何か打てば（`11`、`1番で` など）置き換えずにそのまま入る。待っている間はその候補を目立たせる。
+  on('prompt.edit', async ($, e, next) => {
+    if (!isEnabled || !settings.digitSelect || view.isRunning || view.shown.length === 0) return next(e)
+
+    const wasPending = view.pending !== null
+    const digit = digitOf(e.inputText)
+
+    view.pending = null
+
+    if (e.text !== '' || digit === null || digit > view.shown.length) {
+      if (wasPending) redraw($)
+
+      return next(e)
+    }
+
+    const answer = await next(e)
+    const typed = answer.text
+    const index = digit - 1
+    const until = (await $.clock.now()) + settings.digitDelayMs
+    const pending = { index, until }
+
+    view.pending = pending
+    redraw($)
+    void (async () => {
+      await $.clock.sleep(settings.digitDelayMs)
+      if (view.pending !== pending) return
+      view.pending = null
+
+      const text = view.shown[index]
+      // 待っている間に入力欄が変わっていたら（打ち足した・消した・送った）置き換えない。
+      const now = (await $.prompt.read()).text
+
+      if (text !== undefined && now === typed && !view.isRunning) await $.prompt.fill({ text, mode: 'replace' })
+      redraw($)
+    })()
+
+    return answer
+  })
+
   on('ui.press', async ($, e, next) => {
     if (e.plugin === PLUGIN && e.component === 'AbovePrompt' && e.element.startsWith(BUTTON_PREFIX)) {
       await choose($, view, e.element)
@@ -347,7 +406,7 @@ export const register: Register = (on, options) => {
     const candidates = e.props.isWorking
       ? []
       : mergeCandidates(view.suggestion, view.generated, settings.count, view.lastPrompt)
-    const placed = layoutLabels(candidates, Math.max(20, e.props.bodyColumns))
+    const placed = layoutLabels(candidates, Math.max(20, e.props.bodyColumns), 2, settings.digitSelect)
     const idle = e.props.isWorking ? '（作業中）' : isThinking ? '候補を考え中…' : candidates.length === 0 ? '—' : ''
 
     view.shown = candidates
@@ -357,7 +416,12 @@ export const register: Register = (on, options) => {
       <Box key={slotKey(BAND_ORDER.nextPrompts, 'next-prompts')} flexDirection="row" flexWrap="wrap" columnGap={GAP}>
         <Text dimColor>{HEADING}</Text>
         {placed.map(item => (
-          <Button key={`${BUTTON_PREFIX}${item.index}`} label={item.label} onPress={() => undefined} />
+          <Button
+            key={`${BUTTON_PREFIX}${item.index}`}
+            label={item.label}
+            {...(view.pending?.index === item.index ? { variant: 'primary' as const } : {})}
+            onPress={() => undefined}
+          />
         ))}
         {idle === '' ? null : <Text dimColor>{idle}</Text>}
       </Box>
