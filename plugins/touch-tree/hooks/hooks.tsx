@@ -14,8 +14,8 @@ import { SYMBOLS, fitRow, forestOf, rowsOf } from './tree'
 /** プラグイン名。$.state と ui.press の持ち主。 */
 const PLUGIN = 'touch-tree'
 
-/** 帯の「開く」ボタンの key。 */
-const OPEN_BUTTON = 'open-touch-tree'
+/** 帯の下に固定で置く開け閉めボタンの key。 */
+const TOGGLE_BUTTON = 'touch-tree-toggle'
 
 /** ペインの id（`$.ui.open` と ui.render の requestId）。 */
 export const PANE = 'touch-tree'
@@ -390,11 +390,13 @@ export const register: Register = on => {
     if (e.plugin === PLUGIN && e.requestId === PANE) {
       if (e.element === 'hits') await toggleHits($)
       if (e.element === 'clear') await clearRecord($)
-      if (e.element === 'close') await closePane($)
     }
 
-    // 帯の「開く」ボタン。
-    if (e.plugin === PLUGIN && e.component === 'AbovePrompt' && e.element === OPEN_BUTTON) await openPane($)
+    // 帯の開け閉めボタン。開いていれば閉じ、閉じていれば開く。
+    if (e.plugin === PLUGIN && e.component === 'AbovePrompt' && e.element === TOGGLE_BUTTON) {
+      if (isPaneOpen) await closePane($)
+      else await openPane($)
+    }
 
     return next(e)
   })
@@ -432,7 +434,6 @@ export const register: Register = on => {
         <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
           <Button key="hits" label={showHits ? '検索のみを隠す' : '検索のみも出す'} onPress={() => undefined} />
           <Button key="clear" label="クリア" onPress={() => undefined} />
-          <Button key="close" label="閉じる" onPress={() => undefined} />
         </Box>
         <Text color={GUIDE_COLOR}>{'─'.repeat(Math.min(columns, 500))}</Text>
         {forest.hidden > 0 && <Text dimColor wrap="truncate-end">{`検索に出ただけの ${forest.hidden} 件を隠しています`}</Text>}
@@ -460,17 +461,22 @@ export const register: Register = on => {
       </Box>
     )
   })
-  // ペインが閉じているあいだ、プロンプトの上の帯に「開く」ボタンを 1 行だけ出す。
+  // プロンプトのすぐ上（帯のいちばん下）に開け閉めボタンを 1 行だけ固定で置く。
   // 帯を使う他のプラグイン（tokyo-board など）の描画は先に受け取り、その下に並べる。
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const beneath = await next(e)
 
-    if (isPaneOpen || e.surface !== 'terminal' || e.props.hasSurvey || e.props.maxRows < 2) return beneath
+    if (e.surface !== 'terminal' || e.props.hasSurvey || e.props.maxRows < 2) return beneath
 
     const { Box, Button } = $.ui.resolve(e)
     const button = (
       <Box flexDirection="row">
-        <Button key={OPEN_BUTTON} label="touch-tree を開く" dimColor onPress={() => undefined} />
+        <Button
+          key={TOGGLE_BUTTON}
+          label={isPaneOpen ? 'touch-tree を閉じる' : 'touch-tree を開く'}
+          dimColor
+          onPress={() => undefined}
+        />
       </Box>
     )
 

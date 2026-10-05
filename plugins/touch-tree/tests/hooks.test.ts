@@ -425,10 +425,10 @@ describe('操作', () => {
     expect(textOf(await proc.pane(60))).toContain('まだ何も触っていません')
   })
 
-  test('ペインの「閉じる」で閉じ、帯に「開く」が出る。押すとまた開く', async () => {
+  test('帯の下に開け閉めボタンが 1 つだけ常にあり、押すたびに開閉する。ペインの中に「閉じる」は無い', async () => {
     const store = new Map<string, unknown>()
     const proc = new Process(FILES, store)
-    const band = async (): Promise<Node> =>
+    const band = async (beneath: unknown = { type: 'engine', props: {}, children: [] }): Promise<Node> =>
       (await proc.emit(
         'ui.render',
         {
@@ -437,49 +437,36 @@ describe('操作', () => {
           requestId: 'band',
           props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 19 } },
         },
-        () => ({ type: 'engine', props: {}, children: [] }),
+        () => beneath,
       )) as Node
-    const buttonsOf = (node: Node): string[] =>
-      flatten(node).filter(el => el.type === 'Button').map(el => String(el.props['key']))
+    const buttons = (node: Node) => flatten(node).filter(el => el.type === 'Button')
+    const press = () =>
+      proc.emit('ui.press', { plugin: 'touch-tree', element: 'touch-tree-toggle', component: 'AbovePrompt', requestId: 'band', surface: 'terminal' })
 
     await proc.sessionStart()
-    await proc.emit('command.run', { command: 'touch-tree', args: '' })
-    expect(buttonsOf(await proc.pane(60))).toContain('close')
-    expect(buttonsOf(await band()), '開いているあいだは帯に出さない').toEqual([])
+    expect(buttons(await band()).map(b => b.props['label'])).toEqual(['touch-tree を開く'])
+
+    await press()
+    expect(proc.opened).toEqual([PANE])
+    expect(store.get('open')).toBe(true)
+    expect(buttons(await band()).map(b => b.props['label'])).toEqual(['touch-tree を閉じる'])
+    expect(buttons(await proc.pane(60)).map(b => b.props['key']), 'ペインの中に閉じるボタンは置かない').not.toContain('close')
 
     const before = proc.invalidations
 
-    await proc.emit('ui.press', { plugin: 'touch-tree', element: 'close', component: 'Pane', requestId: PANE, surface: 'terminal' })
+    await press()
     expect(proc.closed).toEqual([PANE])
     expect(store.get('open')).toBe(false)
     expect(proc.invalidations, '帯を描き直す').toBeGreaterThan(before)
-    expect(buttonsOf(await band())).toEqual(['open-touch-tree'])
+    expect(buttons(await band()).map(b => b.props['label'])).toEqual(['touch-tree を開く'])
 
-    await proc.emit('ui.press', { plugin: 'touch-tree', element: 'open-touch-tree', component: 'AbovePrompt', requestId: 'band', surface: 'terminal' })
-    expect(proc.opened).toEqual([PANE, PANE])
-    expect(store.get('open')).toBe(true)
-    expect(buttonsOf(await band())).toEqual([])
-  })
-
-  test('帯は他のプラグインの描画を消さず、その下に「開く」を並べる', async () => {
-    const proc = new Process(FILES)
-
-    await proc.sessionStart()
-
+    // 他のプラグインの描画は消さず、ボタンはその下（帯のいちばん下）に置く
     const other = { type: 'Box', props: { flexDirection: 'column' }, children: [{ type: 'Text', props: {}, children: ['天気'] }] }
-    const drawn = (await proc.emit(
-      'ui.render',
-      {
-        surface: 'terminal',
-        component: 'AbovePrompt',
-        requestId: 'band',
-        props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 19 } },
-      },
-      () => other,
-    )) as Node
+    const stacked = await band(other)
 
-    expect(textOf(drawn)).toContain('天気')
-    expect(flatten(drawn).some(el => el.type === 'Button' && el.props['key'] === 'open-touch-tree')).toBe(true)
+    expect(textOf(stacked)).toContain('天気')
+    expect(typeof stacked !== 'string' && stacked.children.length).toBe(2)
+    expect(typeof stacked !== 'string' && buttons(stacked.children[1] as Node).length).toBe(1)
   })
 
   test('/touch-tree で開き、次のセッションでも開く。人が閉じたら開かない', async () => {

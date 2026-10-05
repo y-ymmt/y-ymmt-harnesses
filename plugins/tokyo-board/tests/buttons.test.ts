@@ -1,5 +1,6 @@
 // bun test plugins/tokyo-board/tests/buttons.test.ts
-// ボードの「隠す」と、隠しているあいだ帯に出る「表示」を、偽のエンジンで確かめる。
+// ボードの「隠す」と、出していないあいだ帯に出る「表示」を、偽のエンジンで確かめる。
+// 既定の表示時間帯は 17:00〜24:00。
 import { beforeAll, expect, test } from 'bun:test'
 
 type Node = string | Element
@@ -26,15 +27,16 @@ beforeAll(() => {
 type Hook = (...args: unknown[]) => unknown
 
 /** 偽のエンジン。時計は 18:00（表示する時間帯の中）に止めておく。 */
-async function boot() {
+async function boot(hour = 18) {
   const { register } = await import('../hooks/hooks')
   const hooks: { event: string; matcher: Record<string, unknown> | null; hook: Hook }[] = []
   const store = new Map<string, unknown>()
   let invalidations = 0
-  const now = new Date(2026, 9, 5, 18, 0, 0).getTime()
+  const now = new Date(2026, 9, 5, hour, 0, 0).getTime()
+  let fetches = 0
   const $ = {
     clock: { now: async () => now, every: () => ({ cancel: () => undefined }) },
-    http: { fetch: async () => ({ ok: false, status: 503, text: '', headers: {} }) },
+    http: { fetch: async () => ((fetches += 1), { ok: false, status: 503, text: '', headers: {} }) },
     store: { get: async (k: string) => store.get(k), set: async (k: string, v: unknown) => void store.set(k, v) },
     ui: {
       resolve: () => ({ Box: 'Box', Text: 'Text', Link: 'Link', Button: 'Button' }),
@@ -68,42 +70,67 @@ async function boot() {
   // checkWindow は session.start から非同期で走るので、待ってから描く。
   await new Promise(resolve => setTimeout(resolve, 20))
 
-  return { emit, band, store, invalidations: () => invalidations }
+  return { emit, band, store, invalidations: () => invalidations, fetches: () => fetches }
 }
 
 const flatten = (node: Node): Element[] => (typeof node === 'string' ? [] : [node, ...node.children.flatMap(flatten)])
 const buttonsOf = (node: Node): string[] => flatten(node).filter(el => el.type === 'Button').map(el => String(el.props['key']))
+const labelOf = (node: Node): string => String(flatten(node).find(el => el.type === 'Button')?.props['label'] ?? '')
+/** 帯の最後の子が出し入れボタンか（ボードの有無で位置が動かない）。 */
+const toggleIsLast = (node: Node): boolean => typeof node !== 'string' && (node.type === 'Box' && node.children.length > 0 ? flatten(node.children[node.children.length - 1] as Node).some(el => el.type === 'Button') : node.type === 'Box')
 const textOf = (node: Node): string => (typeof node === 'string' ? node : node.children.map(textOf).join(''))
 
-test('時間帯の中ではボードに「隠す」が出て、押すと「表示」の 1 行だけになり、押すと戻る', async () => {
-  const tb = await boot()
+const press = (tb: Awaited<ReturnType<typeof boot>>) =>
+  tb.emit('ui.press', { plugin: 'tokyo-board', element: 'board-toggle', component: 'AbovePrompt', requestId: 'band', surface: 'terminal' })
+const boardRows = (node: Node): number => flatten(node).filter(el => el.type === 'Text').length
 
-  expect(buttonsOf(await tb.band())).toEqual(['board-hide'])
+test('時間帯の中: ボードの下に「天気・運行を隠す」が 1 つ。押すとボードが消えて「表示」に変わり、押すと戻る', async () => {
+  const tb = await boot(18)
+  const shown = await tb.band()
+
+  expect(buttonsOf(shown)).toEqual(['board-toggle'])
+  expect(labelOf(shown)).toBe('天気・運行を隠す')
+  expect(boardRows(shown)).toBeGreaterThan(3)
+  expect(toggleIsLast(shown), 'ボタンは帯のいちばん下').toBe(true)
 
   const before = tb.invalidations()
 
-  await tb.emit('ui.press', { plugin: 'tokyo-board', element: 'board-hide', component: 'AbovePrompt', requestId: 'band', surface: 'terminal' })
-  expect(tb.store.get('board.hidden')).toBe(true)
+  await press(tb)
+  expect(tb.store.get('board.override')).toBe('hide')
   expect(tb.invalidations()).toBeGreaterThan(before)
 
   const hidden = await tb.band()
 
-  expect(buttonsOf(hidden)).toEqual(['board-show'])
-  expect(flatten(hidden).filter(el => el.type === 'Text').length, 'ボードの行は描かない').toBe(0)
+  expect(labelOf(hidden)).toBe('天気・運行を表示')
+  expect(boardRows(hidden), 'ボードの行は描かない').toBe(0)
 
-  await tb.emit('ui.press', { plugin: 'tokyo-board', element: 'board-show', component: 'AbovePrompt', requestId: 'band', surface: 'terminal' })
-  expect(tb.store.get('board.hidden')).toBe(false)
-  expect(buttonsOf(await tb.band())).toEqual(['board-hide'])
+  await press(tb)
+  expect(tb.store.get('board.override')).toBe(null)
+  expect(labelOf(await tb.band())).toBe('天気・運行を隠す')
 })
 
-test('隠しているあいだも、帯の下に居る他のプラグインの描画は消さない', async () => {
-  const tb = await boot()
+test('ボタンは他のプラグインの描画より下に置き、ボードの有無で位置が動かない', async () => {
+  const tb = await boot(18)
   const other: Element = { type: 'Box', props: {}, children: [{ type: 'Text', props: {}, children: ['touch-tree を開く'] }] }
 
-  await tb.emit('ui.press', { plugin: 'tokyo-board', element: 'board-hide', component: 'AbovePrompt', requestId: 'band', surface: 'terminal' })
+  for (const drawn of [await tb.band(other), (await press(tb), await tb.band(other))]) {
+    expect(textOf(drawn)).toContain('touch-tree を開く')
+    expect(toggleIsLast(drawn)).toBe(true)
+  }
+})
 
-  const drawn = await tb.band(other)
+test('時間帯の外（11 時）: 「表示」が出て、押すとその場で取りにいってボードを出し、もう一度押すと畳む', async () => {
+  const tb = await boot(11)
 
-  expect(textOf(drawn)).toContain('touch-tree を開く')
-  expect(buttonsOf(drawn)).toEqual(['board-show'])
+  expect(tb.fetches(), '時間帯の外では取りにいかない').toBe(0)
+  expect(labelOf(await tb.band())).toBe('天気・運行を表示')
+
+  await press(tb)
+  expect(tb.store.get('board.override')).toBe('show')
+  expect(tb.fetches(), '出し始めたら取りにいく').toBeGreaterThan(0)
+  expect(labelOf(await tb.band())).toBe('天気・運行を隠す')
+
+  await press(tb)
+  expect(tb.store.get('board.override'), '外で畳んだら時間帯どおりに戻すだけ').toBe(null)
+  expect(labelOf(await tb.band())).toBe('天気・運行を表示')
 })

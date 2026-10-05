@@ -119,7 +119,9 @@ const STOCK_BUTTON = 'stock-face'
  */
 async function restore($: EngineInterface, board: Board): Promise<void> {
   board.today = jstDayOf(await $.clock.now())
-  board.isHidden = (await $.store.get('board.hidden')) === true
+  const chosen = await $.store.get('board.override')
+
+  board.override = chosen === 'show' || chosen === 'hide' ? chosen : null
   board.period = periodOf(await $.store.get('stock.period'))
 
   const charts = await $.store.get('stock.charts')
@@ -139,12 +141,8 @@ async function restore($: EngineInterface, board: Board): Promise<void> {
   await repaint($, board)
 }
 
-/** ボードを隠す／出すボタンの key。 */
-const HIDE_BUTTON = 'board-hide'
-const SHOW_BUTTON = 'board-show'
-
-/** 「隠す」ボタンが取る幅（`[ 隠す ]` の 8 セル＋間の 1）。 */
-const HIDE_COLS = 9
+/** ボードを出し入れするボタンの key。帯のいちばん下に固定で置く。 */
+const TOGGLE_BUTTON = 'board-toggle'
 
 /** 時間帯の出入りを見直す間隔（ミリ秒）。 */
 const WINDOW_CHECK_MS = 30_000
@@ -157,8 +155,11 @@ type Board = {
   readonly window: ShowWindow
   /** 今が時間帯の中か。`checkWindow` が 30 秒ごとに見直す。 */
   isOpen: boolean
-  /** 人が「隠す」を押したか。時間帯に入り直すと（翌日の夕方など）出す状態に戻る。 */
-  isHidden: boolean
+  /**
+   * 人がボタンで決めた表示。null なら時間帯どおり（中なら出す、外なら畳む）。
+   * 時間帯の出入りのたびに null に戻し、いつもの時間割に従う。
+   */
+  override: 'show' | 'hide' | null
   /** 見たい路線（設定 `lines`）。 */
   readonly wanted: readonly string[]
   /** 取りにいく間隔（ミリ秒）。 */
@@ -279,7 +280,7 @@ async function getText($: EngineInterface, url: string): Promise<string | null> 
  * @param board このセッションの状態
  */
 async function fetchWeather($: EngineInterface, board: Board): Promise<void> {
-  if (!board.isShown || !board.isOpen || board.isWorking) {
+  if (!isVisible(board) || board.isWorking) {
     return
   }
 
@@ -351,7 +352,7 @@ async function fetchWeather($: EngineInterface, board: Board): Promise<void> {
  * @param board このセッションの状態
  */
 async function fetchAlerts($: EngineInterface, board: Board): Promise<void> {
-  if (!board.isShown || !board.isOpen || !board.showAlerts || board.isWorking) {
+  if (!isVisible(board) || !board.showAlerts || board.isWorking) {
     return
   }
 
@@ -408,7 +409,7 @@ async function fetchAlerts($: EngineInterface, board: Board): Promise<void> {
  * @param board このセッションの状態
  */
 async function fetchNews($: EngineInterface, board: Board): Promise<void> {
-  if (!board.isShown || !board.isOpen || !board.showNews || board.feeds.length === 0) {
+  if (!isVisible(board) || !board.showNews || board.feeds.length === 0) {
     return
   }
 
@@ -452,7 +453,7 @@ async function fetchNews($: EngineInterface, board: Board): Promise<void> {
  * @param board このセッションの状態
  */
 async function fetchStock($: EngineInterface, board: Board): Promise<void> {
-  if (!board.isShown || !board.isOpen || !board.showStock || board.isWorking) {
+  if (!isVisible(board) || !board.showStock || board.isWorking) {
     return
   }
 
@@ -531,7 +532,7 @@ async function recordTick(
 async function ensureChart($: EngineInterface, board: Board): Promise<void> {
   const period = board.period
 
-  if (!board.isShown || !board.isOpen || !board.showStock || board.isWorking || board.chartBusy) {
+  if (!isVisible(board) || !board.showStock || board.isWorking || board.chartBusy) {
     return
   }
 
@@ -645,7 +646,7 @@ function chartOf(board: Board): StockChart {
  * @param board このセッションの状態
  */
 async function fetchTransit($: EngineInterface, board: Board): Promise<void> {
-  if (!board.isShown || !board.isOpen || board.isWorking) {
+  if (!isVisible(board) || board.isWorking) {
     return
   }
 
@@ -713,7 +714,7 @@ async function fetchTransit($: EngineInterface, board: Board): Promise<void> {
  * スピナーが枠を使うので、ここまで重ねると上限に触れる。待機中だけ流す。
  */
 async function stepMarquee($: EngineInterface, board: Board): Promise<void> {
-  if (!board.isShown || !board.isOpen || board.isHidden || board.isWorking) {
+  if (!isVisible(board) || board.isWorking) {
     return
   }
 
@@ -727,6 +728,34 @@ async function stepMarquee($: EngineInterface, board: Board): Promise<void> {
 }
 
 /** 姿が変わっていれば描き直す。 */
+/** 今ボードを出すか。人の指定があればそれ、無ければ時間帯どおり。 */
+function isVisible(board: Board): boolean {
+  if (!board.isShown) return false
+
+  return board.override === null ? board.isOpen : board.override === 'show'
+}
+
+/** 取りにいくものをまとめて取りにいく（ボードを出し始めたとき用）。 */
+function fetchAll($: EngineInterface, board: Board): void {
+  void fetchWeather($, board)
+  void fetchTransit($, board)
+  void fetchAlerts($, board)
+  void fetchNews($, board)
+  void fetchStock($, board)
+}
+
+/** 人の指定を変え、出し始めたなら取りにいって、描き直す。 */
+async function setOverride($: EngineInterface, board: Board, override: 'show' | 'hide' | null): Promise<void> {
+  const was = isVisible(board)
+
+  board.override = override
+  await $.store.set('board.override', override)
+
+  if (!was && isVisible(board)) fetchAll($, board)
+
+  $.ui.invalidate('ui.render')
+}
+
 /**
  * 時間帯の出入りを見る。入った瞬間にまとめて取りにいき、出入りのたびに描き直す。
  *
@@ -739,21 +768,17 @@ async function checkWindow($: EngineInterface, board: Board): Promise<void> {
     return
   }
 
+  const was = isVisible(board)
+
   board.isOpen = isOpen
 
-  if (isOpen) {
-    // 時間帯に入り直したら、前の晩に隠したままにはしない。
-    if (board.isHidden) {
-      board.isHidden = false
-      void $.store.set('board.hidden', false)
-    }
-
-    void fetchWeather($, board)
-    void fetchTransit($, board)
-    void fetchAlerts($, board)
-    void fetchNews($, board)
-    void fetchStock($, board)
+  // 時間帯の出入りでは人の指定を解き、いつもの時間割に戻す（昼に出したものは夜中に畳む、など）。
+  if (board.override !== null) {
+    board.override = null
+    void $.store.set('board.override', null)
   }
+
+  if (!was && isVisible(board)) fetchAll($, board)
 
   $.ui.invalidate('ui.render')
 }
@@ -786,7 +811,7 @@ export const register: Register = (on, options) => {
     isShown: booleanOf(options['enabled'], true),
     window: windowOf(stringOf(options['showFrom'], '17:00'), stringOf(options['showUntil'], '24:00')),
     isOpen: false,
-    isHidden: false,
+    override: null,
     wanted: linesOf(stringOf(options['lines'], '山手線,東急田園都市線')),
     trainMs: numberOf(options['trainRefreshSec'], 180, 60, 3600) * 1000,
     weatherMs: numberOf(options['weatherRefreshSec'], 600, 300, 3600) * 1000,
@@ -888,19 +913,13 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // ボードの「隠す」と、隠しているあいだ帯に出る「表示」。
-  on('ui.press', { element: HIDE_BUTTON }, async ($, e, next) => {
-    board.isHidden = true
-    await $.store.set('board.hidden', true)
-    $.ui.invalidate('ui.render')
+  // 帯の下の固定ボタン。出していれば畳み、畳んでいれば出す。
+  on('ui.press', { element: TOGGLE_BUTTON }, async ($, e, next) => {
+    // 時間帯の中で畳むなら「隠す」、外で出すなら「出す」を覚える。
+    // それ以外（中で隠していたのを出す、外で出していたのを畳む）は時間帯どおりに戻すだけ。
+    const override = isVisible(board) ? (board.isOpen ? 'hide' : null) : board.isOpen ? null : 'show'
 
-    return next(e)
-  })
-
-  on('ui.press', { element: SHOW_BUTTON }, async ($, e, next) => {
-    board.isHidden = false
-    await $.store.set('board.hidden', false)
-    $.ui.invalidate('ui.render')
+    await setOverride($, board, override)
 
     return next(e)
   })
@@ -916,11 +935,11 @@ export const register: Register = (on, options) => {
       board.isWorking = false
 
       // 作業中に時間帯へ入ると、入った瞬間の取得が止められている。空なら今取りにいく。
-      if (board.isOpen && board.weather === null) {
+      if (isVisible(board) && board.weather === null) {
         void fetchWeather($, board)
       }
 
-      if (board.isOpen && board.transit.length === 0) {
+      if (isVisible(board) && board.transit.length === 0) {
         void fetchTransit($, board)
       }
     }
@@ -937,7 +956,7 @@ export const register: Register = (on, options) => {
     const beneath = await next(e)
 
 
-    if (!board.isShown || !board.isOpen || e.props.hasSurvey || PANEL_ROWS + 1 > e.props.maxRows) {
+    if (!board.isShown || e.props.hasSurvey) {
       return beneath
     }
 
@@ -950,20 +969,31 @@ export const register: Register = (on, options) => {
      */
     const pressFace = (): void => undefined
 
-    // 隠しているあいだは「表示」ボタンを 1 行だけ出し、下に居るものはそのまま並べる。
-    if (board.isHidden) {
-      const show = (
-        <Box flexDirection="row">
-          <Button key={SHOW_BUTTON} label="天気・運行を表示" dimColor onPress={pressFace} />
-        </Box>
-      )
+    // 帯のいちばん下（プロンプトのすぐ上）に置く出し入れボタン。ボードの有無で位置が動かない。
+    const visible = isVisible(board) && PANEL_ROWS + 1 <= e.props.maxRows
+    const toggle = (
+      <Box flexDirection="row">
+        <Button
+          key={TOGGLE_BUTTON}
+          label={visible ? '天気・運行を隠す' : '天気・運行を表示'}
+          dimColor
+          onPress={pressFace}
+        />
+      </Box>
+    )
+
+    // 出していないあいだ（隠した、または時間帯の外）はボタンだけ。下に居るものはそのまま並べる。
+    if (!visible) {
+      if (e.props.maxRows < 2) {
+        return beneath
+      }
 
       return beneath.type === 'engine' ? (
-        show
+        toggle
       ) : (
         <Box flexDirection="column">
-          {show}
           {beneath}
+          {toggle}
         </Box>
       )
     }
@@ -972,9 +1002,9 @@ export const register: Register = (on, options) => {
     const hasStock =
       board.showStock && e.props.bodyColumns >= PANEL_WIDTH * 2 + BOARD_MIN + GUTTER * 3
     const sides = PANEL_WIDTH + GUTTER + (hasStock ? PANEL_WIDTH + GUTTER : 0)
-    const room = Math.max(PANEL_WIDTH + sides, e.props.bodyColumns - GUTTER - HIDE_COLS)
+    const room = Math.max(PANEL_WIDTH + sides, e.props.bodyColumns - GUTTER)
     const railsWidth = Math.max(BOARD_MIN, Math.min(room - sides, BOARD_MAX))
-    const width = sides + railsWidth + HIDE_COLS
+    const width = sides + railsWidth
     const alerts = board.showAlerts ? board.alerts : NO_ALERTS
     const panel = weatherPanel(
       board.sky,
@@ -1089,11 +1119,9 @@ export const register: Register = (on, options) => {
               ))}
             </Box>
           ) : null}
-          <Box flexDirection="column">
-            <Button key={HIDE_BUTTON} label="隠す" dimColor onPress={pressFace} />
-          </Box>
         </Box>
         {beneath}
+        {toggle}
       </Box>
     )
   })
