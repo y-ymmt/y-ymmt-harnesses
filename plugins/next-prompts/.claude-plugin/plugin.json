@@ -1,0 +1,31 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "next-prompts",
+  "version": "0.1.0",
+  "description": "ターンが終わるたびに、次に打ちそうな依頼の候補をいくつかプロンプトの上に並べ、押すと入力欄に入れる",
+  "author": {
+    "name": "y-ymmt"
+  },
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "候補を出す",
+      "description": "ターンが終わるたびに、次の依頼の候補をプロンプトの上に出す",
+      "default": true
+    },
+    "count": {
+      "type": "number",
+      "title": "候補の数",
+      "description": "一度に並べる候補の数（標準の提案を含む）",
+      "default": 4,
+      "min": 3,
+      "max": 6
+    },
+    "model": {
+      "type": "string",
+      "title": "候補を作るモデル",
+      "description": "エイリアス（haiku など）か完全なモデル ID",
+      "default": "haiku"
+    }
+  }
+}

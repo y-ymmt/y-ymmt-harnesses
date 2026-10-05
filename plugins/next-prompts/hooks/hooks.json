@@ -1,0 +1,4 @@
+{
+  "description": "次に打ちそうな依頼の候補をプロンプトの上に並べる",
+  "modules": ["./hooks.tsx"]
+}
