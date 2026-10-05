@@ -13,6 +13,7 @@ import type { EngineInterface, Register, RenderElement } from 'claude-code'
 import type { ReplyPrismView } from '../types'
 import type { RichText } from './clipboard'
 import { PASTEBOARD_ARGV, pasteboardInput } from './clipboard'
+import { chip } from './chip'
 import { DANGER_HINT } from './mark'
 import { parse } from './markdown'
 import { boxArt, mermaidText } from './mermaid'
@@ -139,7 +140,7 @@ const writeRichText = async ($: EngineInterface, clipboard: RichClipboard, conte
 const makeCopy = ($: EngineInterface, el: ReturnType<EngineInterface['ui']['resolve']>, style: Style, clipboard?: RichClipboard): CopyButton => {
   const { Button } = el
   return (text, key, label = COPY, done = 'コピーしました', rich) =>
-    style.copyButtons ? (
+    style.copyButtons ? chip(el, style, key, (
       <Button
         key={key}
         variant="primary"
@@ -156,7 +157,7 @@ const makeCopy = ($: EngineInterface, el: ReturnType<EngineInterface['ui']['reso
           })().catch(() => $.ui.toast('コピーできませんでした'))
         }}
       />
-    ) : null
+    )) : null
 }
 
 // ---- 返事まるごとコピー ----

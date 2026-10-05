@@ -219,6 +219,26 @@ test('code blocks, tables and quotes get a copy button', async ($, on) => {
   await ui.unmount()
 })
 
+test('every button sits on a resting background taken from the theme', async ($, on) => {
+  const text = `${TABLE}\n\n\`\`\`bash\nls -la\n\`\`\``
+  const ui = await $.ui.mount({ ...draw(text), surface: 'terminal' })
+  const buttons = await ui.findAll({ type: 'Button' })
+  expect(buttons.length).toBeGreaterThan(3)
+  const chips = (await ui.findAll({ type: 'Box' })).filter(b => b.key?.endsWith('.chip'))
+  expect(chips.length).toBe(buttons.length)
+  // 常時の背景は罫線の色（既定は catppuccin-mocha）。ホバーの反転とは別の層なので hover は付けない。
+  expect(new Set(chips.map(c => c.props.backgroundColor))).toEqual(new Set([PRESETS['catppuccin-mocha'].tableRule]))
+  await ui.unmount()
+})
+
+test('a theme without a rule color falls back to the host theme background', { options: { theme: 'mono' } }, async $ => {
+  const ui = await $.ui.mount({ ...draw(TABLE), surface: 'terminal' })
+  const chips = (await ui.findAll({ type: 'Box' })).filter(b => b.key?.endsWith('.chip'))
+  expect(chips.length).toBeGreaterThan(0)
+  expect(chips.every(c => c.props.backgroundColor === 'userMessageBackground')).toBe(true)
+  await ui.unmount()
+})
+
 test('copyButtons off draws no buttons', { options: { copyButtons: false } }, async $ => {
   const ui = await $.ui.mount({ ...draw('```bash\nls\n```'), surface: 'terminal' })
   expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)

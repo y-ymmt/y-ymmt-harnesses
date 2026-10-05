@@ -2,6 +2,7 @@
 // パスのリンク（linked）、表の並べ替え・折りたたみ・形式別コピー、コードの折りたたみ、ボタンの日本語化。
 import type { ElementTable, RenderElement } from 'claude-code'
 
+import { chip } from './chip'
 import type { Block, Inline } from './markdown'
 import { inlineText, plainText } from './markdown'
 import type { Range } from './danger'
@@ -111,7 +112,7 @@ export const renderOpenRow = (
   return (
     <Box key="open" flexDirection="row" flexWrap="wrap" columnGap={2}>
       <Text dimColor>開く:</Text>
-      {shown.map(t => <Button key={openKey(t)} plain label={openLabel(t)} onPress={() => undefined} />)}
+      {shown.map(t => chip(el, style, openKey(t), <Button key={openKey(t)} plain label={openLabel(t)} onPress={() => undefined} />))}
       {rest > 0 ? <Text dimColor>{`ほか ${rest} 件`}</Text> : null}
     </Box>
   )
@@ -354,9 +355,9 @@ const SORT_GLYPH = { none: '⇅', asc: '▲', desc: '▼' } as const
 const hiddenCount = (style: Style, controls: Controls | undefined, lines: number): number =>
   controls && style.fold.threshold > 0 && lines > style.fold.threshold ? lines - style.fold.preview : 0
 
-const foldButton = (el: ElementTable, controls: Controls, id: string, key: string, hidden: number, isOpen: boolean): RenderElement => {
+const foldButton = (el: ElementTable, style: Style, controls: Controls, id: string, key: string, hidden: number, isOpen: boolean): RenderElement => {
   const { Button } = el
-  return <Button key={key} label={isOpen ? '畳む' : `あと ${hidden} 行を表示`} onPress={() => controls.toggle(id)} />
+  return chip(el, style, key, <Button key={key} label={isOpen ? '畳む' : `あと ${hidden} 行を表示`} onPress={() => controls.toggle(id)} />)
 }
 
 /** 表の行の並び。並べ替えていなければ元の順。 */
@@ -413,7 +414,7 @@ const renderTable = (el: ElementTable, style: Style, block: Extract<Block, { kin
     return (
       <Box flexDirection="row" columnGap={1}>
         {label}
-        <Button key={`sort.${key}.${c}`} plain label={SORT_GLYPH[dir ?? 'none']} {...(dir ? {} : { dimColor: true })} onPress={() => controls.sort(id, c)} />
+        {chip(el, style, `sort.${key}.${c}`, <Button key={`sort.${key}.${c}`} plain label={SORT_GLYPH[dir ?? 'none']} {...(dir ? {} : { dimColor: true })} onPress={() => controls.sort(id, c)} />)}
       </Box>
     )
   }
@@ -444,7 +445,7 @@ const renderTable = (el: ElementTable, style: Style, block: Extract<Block, { kin
     body.push(row(block.rows[r] ?? [], `${key}.r${r}`, false))
     if (style.tableStyle !== 'minimal' && i < shown.length - 1) body.push(rule(`${key}.r${r}r`, false))
   })
-  if (hidden && controls) body.push(<Box key={`${key}.fold`}>{foldButton(el, controls, id, `fold.${key}`, hidden, view.open === true)}</Box>)
+  if (hidden && controls) body.push(<Box key={`${key}.fold`}>{foldButton(el, style, controls, id, `fold.${key}`, hidden, view.open === true)}</Box>)
   return <Box key={key} flexDirection="column" {...(rtl ? { alignSelf: 'flex-end' as const } : {})}>{body}</Box>
 }
 
@@ -571,7 +572,7 @@ const tableButtons = (el: ElementTable, style: Style, block: Extract<Block, { ki
   const view = controls?.view[id] ?? {}
   const hidden = hiddenCount(style, controls, block.rows.length)
   const buttons = [
-    ...(hidden && view.open && controls ? [foldButton(el, controls, id, `foldtop${b}`, hidden, true)] : []),
+    ...(hidden && view.open && controls ? [foldButton(el, style, controls, id, `foldtop${b}`, hidden, true)] : []),
     ...style.tableCopyFormats.map(format => copy?.(() => tableCopyText(block, controls?.view[id] ?? {}, format), `copy${b}.${format}`, COPY_LABEL[format], COPY_DONE[format]) ?? null),
   ].filter((x): x is RenderElement => x !== null)
   if (buttons.length === 0) return null
@@ -611,14 +612,14 @@ export const renderBlocks = (el: ElementTable, style: Style, blocks: Block[], co
             <Box flexDirection="row" justifyContent="space-between" columnGap={4}>
               <Text color={t.codeComment}>{`── ${block.lang || 'code'}${hidden ? ` · ${block.lines.length} 行` : ''}`}</Text>
               <Box flexDirection="row" columnGap={1}>
-                {hidden && isOpen && controls ? foldButton(el, controls, id, `foldtop${b}`, hidden, true) : null}
+                {hidden && isOpen && controls ? foldButton(el, style, controls, id, `foldtop${b}`, hidden, true) : null}
                 {copy?.(block.lines.join('\n'), `copy${b}`) ?? null}
               </Box>
             </Box>
             <Box flexDirection="column" paddingLeft={2}>
               {(isShellLang(block.lang) ? null : highlightBlock(el, style, block.lines, block.lang, key, limit)) ?? block.lines.slice(0, limit).map((line, i) => codeLine(el, style, line, block.lang, `${key}.${i}`))}
             </Box>
-            {hidden && controls ? <Box paddingLeft={2}>{foldButton(el, controls, id, `fold${b}`, hidden, isOpen)}</Box> : null}
+            {hidden && controls ? <Box paddingLeft={2}>{foldButton(el, style, controls, id, `fold${b}`, hidden, isOpen)}</Box> : null}
           </Box>
         )
       }
@@ -715,7 +716,7 @@ export const renderToolRow = (el: ElementTable, style: Style, row: ToolRow): Ren
         <Text bold>{verb}</Text>
         <Text> </Text>
         <Box flexShrink={1} minWidth={0}>
-          <Button key={openKey(open)} plain label={target} onPress={() => undefined} />
+          {chip(el, style, openKey(open), <Button key={openKey(open)} plain label={target} onPress={() => undefined} />)}
         </Box>
         {status ? <Text wrap="truncate-end">{status}</Text> : null}
       </Box>
