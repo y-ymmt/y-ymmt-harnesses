@@ -16,9 +16,9 @@ import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
 /** プラグイン名。$.state と ui.press の持ち主。 */
 const PLUGIN = 'touch-tree'
 
-// ボタンの常時の背景。Button には背景色の指定が無い（文字のスタイルと hover だけ）ので Box で包んで塗る。
-// Claude Code 本体のテーマの色なので、暗い背景でも明るい背景でも文字が読める。ホバーの反転とは別の層。
-// ボタンの下地。テーマの userMessageBackground では薄くて見えなかったので、暗い背景で目立つ濃い灰青にする。
+// ボタンの常時の背景（ホバーの反転とは別の層）。Button には背景色の指定が無い（文字のスタイルと
+// hover だけ）ので Box で包んで塗る。テーマの userMessageBackground では薄くて見えなかったので、
+// 暗い背景で目立つ濃い灰青にする。
 const CHIP_BACK = '#4b5470'
 
 /** 帯の下に固定で置く開け閉めボタンの key。 */
@@ -308,12 +308,6 @@ async function openPane($: EngineInterface): Promise<string> {
   return opened.isPlaced ? '' : opened.reason
 }
 
-/**
- * このセッションで Claude（サブエージェント含む）が読んだ・書いたファイルを、
- * リポジトリのツリーに沿ってペインに出す。
- *
- * @param on エンジンの登録口
- */
 /** ファイルの行のボタンの key の頭（後ろにファイルの絶対パス）。 */
 export const OPEN_PREFIX = 'open:'
 
@@ -323,23 +317,33 @@ async function openInEditor($: EngineInterface, editor: Editor, path: string): P
 
   if (url === null) return
 
+  // 失敗（終了コード 0 以外）でも、コマンドが無くても、次のコマンドを試す。
+  let failure: string | null = null
+
   for (const opener of ['open', 'xdg-open']) {
     try {
       const { exitCode, stderr } = await $.process.run([opener, url], { timeoutMs: 10_000 })
 
       if (exitCode === 0) return
 
-      $.ui.toast(`開けませんでした: ${stderr.trim().split('\n')[0] ?? ''}`.trim(), { timeoutMs: 5_000 })
-
-      return
+      failure = stderr.trim().split('\n')[0] ?? ''
     } catch {
       // このコマンドが無い。次を試す。
     }
   }
 
-  $.ui.toast('ファイルを開くコマンド（open / xdg-open）が見つかりません', { timeoutMs: 5_000 })
+  $.ui.toast(
+    failure === null ? 'ファイルを開くコマンド（open / xdg-open）が見つかりません' : `開けませんでした: ${failure}`.trim(),
+    { timeoutMs: 5_000 },
+  )
 }
 
+/**
+ * このセッションで Claude（サブエージェント含む）が読んだ・書いたファイルを、
+ * リポジトリのツリーに沿ってペインに出す。
+ *
+ * @param on エンジンの登録口
+ */
 export const register: Register = (on, options) => {
   const editor = editorOf(options['editor'])
 

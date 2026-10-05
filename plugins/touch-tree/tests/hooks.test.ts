@@ -57,6 +57,9 @@ class Process {
   readonly closed: string[] = []
   readonly commands: string[] = []
   readonly runs: string[][] = []
+  /** 偽の open / xdg-open の振る舞い。exit は終了コード、null はコマンドが無い（実行で例外）。 */
+  openExit: number | null = 0
+  xdgExit: number | null = 0
   readonly toasts: string[] = []
   stateSets: string[] = []
   isRendering = false
@@ -116,8 +119,15 @@ class Process {
         run: async (argv: readonly string[]) => {
           if (argv[0] === 'open' || argv[0] === 'xdg-open') this.runs.push([...argv])
           if (argv[0] === 'git') return { exitCode: 1, stdout: '', stderr: '' }
-          if (argv[0] !== 'open') throw new Error('not found')
-          return { exitCode: 0, stdout: '', stderr: '' }
+          if (argv[0] === 'open' || argv[0] === 'xdg-open') {
+            const exit = argv[0] === 'open' ? this.openExit : this.xdgExit
+
+            if (exit === null) throw new Error('not found')
+
+            return { exitCode: exit, stdout: '', stderr: exit === 0 ? '' : `${argv[0]} failed` }
+          }
+
+          throw new Error('not found')
         },
       },
       ui: {
@@ -328,6 +338,37 @@ describe('記録と描画', () => {
 
     await pressOpen(unknown, FILE)
     expect(unknown.runs[0]?.[1], '知らない値は既定に戻す').toStartWith('vscode://file/')
+  })
+
+  test('open が失敗したら xdg-open を試し、最後まで駄目ならトーストを出す', async () => {
+    const FILE = `${JAVA}/web/ApiController.java`
+    const press = async (openExit: number | null, xdgExit: number | null) => {
+      const proc = new Process(FILES)
+
+      proc.openExit = openExit
+      proc.xdgExit = xdgExit
+      await proc.sessionStart()
+      await proc.tool({ tool: 'Edit', file_path: FILE }, { result: { filePath: '' }, text: 'ok' })
+      await proc.advance(FLUSH_MS)
+      await proc.emit('ui.press', { plugin: 'touch-tree', element: `${OPEN_PREFIX}${FILE}`, component: 'Pane', requestId: PANE, surface: 'terminal' })
+
+      return proc
+    }
+
+    const fallback = await press(1, 0)
+
+    expect(fallback.runs.map(run => run[0]), 'open が非 0 でも次へ').toEqual(['open', 'xdg-open'])
+    expect(fallback.toasts).toEqual([])
+
+    const bothFail = await press(1, 2)
+
+    expect(bothFail.runs.map(run => run[0])).toEqual(['open', 'xdg-open'])
+    expect(bothFail.toasts.length, '最後まで駄目ならトースト 1 回').toBe(1)
+    expect(bothFail.toasts[0]).toContain('開けませんでした')
+
+    const missing = await press(null, null)
+
+    expect(missing.toasts[0]).toContain('見つかりません')
   })
 
   test('Read・Edit・Write・Bash の grep を記録し、ツリーで描く', async () => {

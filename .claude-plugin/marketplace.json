@@ -25,7 +25,7 @@
     {
       "name": "touch-tree",
       "description": "このセッションで Claude が読んだ・編集したファイルを、リポジトリのツリーに沿ってペインに出す Mod",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/touch-tree",
       "category": "productivity"
