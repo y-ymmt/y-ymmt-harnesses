@@ -10,8 +10,9 @@ Claude Code 用のプラグイン（marketplace）。
 | `next-prompts` | ターンが終わるたびに、次に打ちそうな依頼の候補（haiku が会話から作る）をプロンプトの上にボタンで並べる。押すとその文が入力欄に入る（送信はしない） |
 | `reply-prism` | 返事の表・コード・Mermaid の図・ツール行を色つきで描き直す（[prismantis](https://github.com/NahumLitvin/prismantis) の改変版）。パスをクリックでエディタで開く、表を Markdown・TSV・Slack 形式でコピー・列で並べ替え、長い表とコードを畳む、`本番` `DELETE` などを赤背景で目立たせる（`/reply-prism`） |
 | `prompt-trail` | このセッションで打ったプロンプトを帯の棒の列（または縦のペイン）に並べ、ホバーで読み・クリックでその位置へ飛ぶ（[prompt-rail](https://github.com/oikon48/prompt-rail) の改変版）。`[ 入力欄へ ]` `[ コピー ]` で再利用、棒の下の色でそのターンの結果（編集・失敗・拒否・中断）が分かる（`/prompt-trail`） |
+| `sdlc-flow` | チケットや依頼文を 1 つ渡すと、壁打ち → 計画（html-plan か plan mode）→ TDD で実装 → ローカルレビュー → PR 作成までを順に進める（`/sdlc-flow`）。Matt Pocock の skills と html-plan を前提にしたスキル |
 
-いずれも function hooks（Mods）で作っている。Claude Code 2.1.287 以降は追加の設定なしで動く。
+`sdlc-flow` 以外は function hooks（Mods）で作っている。Mods は Claude Code 2.1.287 以降なら追加の設定なしで動く。`sdlc-flow` はスキルだけでできていて、依存するプラグインを先に入れる必要がある（[plugins/sdlc-flow/README.md](plugins/sdlc-flow/README.md#入れ方)）。
 
 ## 見た目
 
@@ -67,6 +68,7 @@ claude plugin install touch-tree@y-ymmt-harnesses
 claude plugin install next-prompts@y-ymmt-harnesses
 claude plugin install reply-prism@y-ymmt-harnesses
 claude plugin install prompt-trail@y-ymmt-harnesses
+claude plugin install sdlc-flow@y-ymmt-harnesses   # 依存の入れ方は plugins/sdlc-flow/README.md
 ```
 
 各プラグインの設定と仕組みは `plugins/<name>/README.md` を参照。
@@ -82,6 +84,7 @@ claude plugin install prompt-trail@y-ymmt-harnesses
 - [next-prompts](plugins/next-prompts/README.md#動作環境と確かめた範囲)
 - [reply-prism](plugins/reply-prism/README.md#動作環境と確かめた範囲)
 - [prompt-trail](plugins/prompt-trail/README.md#動作環境と確かめた範囲)
+- [sdlc-flow](plugins/sdlc-flow/README.md#動作環境と確かめた範囲)
 
 表の「状態」の意味:
 

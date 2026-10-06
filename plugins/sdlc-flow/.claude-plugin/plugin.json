@@ -1,0 +1,10 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "sdlc-flow",
+  "version": "0.1.0",
+  "description": "チケットや依頼文から、壁打ち → 計画（html-plan か plan mode）→ TDD で実装 → ローカルレビュー → PR 作成までを 1 つのコマンドで進める開発フロー",
+  "author": {
+    "name": "y-ymmt"
+  },
+  "keywords": ["workflow", "sdlc", "tdd", "planning", "review"]
+}
