@@ -16,11 +16,11 @@ import { PASTEBOARD_ARGV, pasteboardInput } from './clipboard'
 import { chip } from './chip'
 import { DANGER_HINT } from './mark'
 import { parse } from './markdown'
-import { boxArt, mermaidText } from './mermaid'
+import { boxArt, fittedMermaid } from './mermaid'
 import type { OpenTarget } from './paths'
 import { editorUrl, makeLinker, makeResolver, parseOpenKey } from './paths'
 import type { Controls, CopyButton, Drawn } from './render'
-import { COPY, openTargets, remember, renderBlocks, renderExpandedShell, renderOpenRow, renderReplyCopyRow, renderToolGroup, renderToolRow, renderTurnDuration, width } from './render'
+import { COPY, openTargets, remember, renderBlocks, renderExpandedShell, renderOpenRow, renderReplyCopyRow, renderToolGroup, renderToolRow, renderTurnDuration } from './render'
 import type { TranscriptRow } from './reply'
 import { findReply } from './reply'
 import { helpText, rtlShowcaseText, showcaseText } from './help'
@@ -242,8 +242,8 @@ const drawMarkdown = ($: EngineInterface, el: ReturnType<EngineInterface['ui']['
   if (style.mermaid) {
     for (const [i, block] of blocks.entries()) {
       if (block.kind !== 'code' || block.lang.toLowerCase() !== 'mermaid') continue
-      const art = mermaidText(block.lines.join('\n'), style.mermaidAscii, columns)
-      if (art !== null && art.split('\n').every(l => width(l) <= columns - 2)) drawn.set(i, { element: boxArt(el, style, art, `b${i}`), art })
+      const art = fittedMermaid(block.lines.join('\n'), style.mermaidAscii, columns, columns - 2)
+      if (art !== null) drawn.set(i, { element: boxArt(el, style, art, `b${i}`), art })
     }
   }
   return renderBlocks(el, style, blocks, columns, drawn, makeCopy($, el, style), controls)

@@ -20,7 +20,7 @@ Claude Code プラグイン（function hooks）。
 本家の描き方を直したところ:
 
 - ボタンの下地（`hooks/chip.tsx`）: ホバーしていないときも背景色を敷く。高さのある行（折り返した見出しなど）でも伸びない
-- Mermaid: 全角文字の幅と、`xychart-beta` の縦軸の目盛りが重ならない高さの選び方（`hooks/mermaid.tsx`）
+- Mermaid: 全角文字の幅と、`xychart-beta` の縦軸の目盛りが重ならない高さの選び方。横向き（`LR` `RL`）の flowchart が画面の幅に入らないときは、ソースのまま出す前に縦向き（`TD`）にして描き直す（`hooks/mermaid.tsx`）
 - ツール行: Read/Edit/Write のパスをボタンにし、開いた Bash の呼び出しは専用の形で描く（`hooks/render.tsx`・`hooks/register.tsx`）
 - 表の並べ替えボタン（⇅）のある見出しは、狭い列でも折り返さず末尾を切る
 
@@ -446,7 +446,7 @@ hooks/markdown.ts            Markdown → ブロック                          
 hooks/theme.ts               設定の読み込み                                        改変（足した設定）
 hooks/help.ts                /reply-prism の画面                                  改変（日本語化・足した機能の見本）
 hooks/presets.ts             テーマ                                               本家のまま
-hooks/mermaid.tsx            Mermaid の図                                         改変（全角文字の幅・縦軸の目盛りに合わせた高さ・図の大きさ）
+hooks/mermaid.tsx            Mermaid の図                                         改変（全角文字の幅・縦軸の目盛りに合わせた高さ・図の大きさ・幅に入らない横向きの図を縦にする）
 hooks/chip.tsx               ボタンの下地（常時の背景）                           独自
 hooks/rtl.ts                 右から左                                             改変（注意箇所の節を太字などと同じに扱うだけ）
 hooks/vendor/                Prism・beautiful-mermaid の同梱版                    本家のまま（scripts/ で作り直せる）

@@ -128,6 +128,26 @@ export const mermaidText = (source: string, ascii: boolean, columns: number): st
   return art === null ? null : narrow(art, widened.wide)
 }
 
+/**
+ * reply-prism: 横向き（`LR` `RL`）の flowchart を縦向き（`TD`）にした source。横向きでなければ null。
+ * 横に長い図が画面に入らないとき、ソースのまま出す前に縦にして描き直すのに使う。
+ */
+export const verticalOf = (source: string): string | null => {
+  const head = /^(\s*(?:%%[^\n]*\n\s*)*(?:flowchart|graph)[ \t]+)(LR|RL)\b/
+  return head.test(source) ? source.replace(head, '$1TD') : null
+}
+
+/** 描いた図が幅 limit 桁に収まれば、その図。横向きで収まらなければ縦にして描き直す。どちらも駄目なら null。 */
+export const fittedMermaid = (source: string, ascii: boolean, columns: number, limit: number): string | null => {
+  const fits = (art: string | null) => art !== null && art.split('\n').every(l => width(l) <= limit)
+  const art = mermaidText(source, ascii, columns)
+  if (fits(art)) return art
+  const vertical = verticalOf(source)
+  if (vertical === null) return null
+  const tall = mermaidText(vertical, ascii, columns)
+  return fits(tall) ? tall : null
+}
+
 /** 全角を考えない元の描き方（本家のまま）。 */
 const mermaidNarrowText = (source: string, ascii: boolean, columns: number): string | null => {
   if (source.length > 8000 || source.split('\n').length > MAX_LINES) return null

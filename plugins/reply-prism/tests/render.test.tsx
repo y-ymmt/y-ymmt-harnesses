@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { parse } from '../hooks/markdown'
+import { verticalOf } from '../hooks/mermaid'
 import { PRESETS } from '../hooks/presets'
 import { resolveStyle } from '../hooks/theme'
 
@@ -101,6 +102,32 @@ test('mermaid draws as colored box art', async $ => {
     expect(user?.props.color).not.toBe(gateway?.props.color)
     await ui.unmount()
   }
+})
+
+test('a left-to-right flowchart too wide for the screen is drawn top-down instead of as source', async $ => {
+  const wide = [
+    '```mermaid',
+    'flowchart LR',
+    '  A[SBI 起票] --> B[grill-with-docs<br/>壁打ち]',
+    '  B --> C{3ファイル以上?}',
+    '  C -- はい --> D[html-plan<br/>spec+plan を1枚に]',
+    '  D --> E[PO・レビュアーが<br/>Respond で回答]',
+    '  E --> F[tdd で実装]',
+    '  C -- いいえ --> G[plan mode] --> F',
+    '  F --> H[PR: 確定した主張と<br/>決定事項を説明に貼る]',
+    '```',
+  ].join('\n')
+  const ui = await $.ui.mount({ ...draw(wide), surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^flowchart LR$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /tdd で実装/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('verticalOf turns only left-right flowcharts top-down', async () => {
+  expect(verticalOf('flowchart LR\n  A --> B')).toBe('flowchart TD\n  A --> B')
+  expect(verticalOf('%% note\ngraph RL\n  A --> B')).toBe('%% note\ngraph TD\n  A --> B')
+  expect(verticalOf('flowchart TD\n  A --> B')).toBeNull()
+  expect(verticalOf('sequenceDiagram\n  A->>B: hi')).toBeNull()
 })
 
 test('mermaid off keeps the source', { options: { mermaid: false } }, async $ => {
