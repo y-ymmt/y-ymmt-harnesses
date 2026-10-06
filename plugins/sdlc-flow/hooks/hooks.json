@@ -1,0 +1,18 @@
+{
+  "description": "sdlc-flow が動いているブランチで、既定ブランチへの push・force push・フックの迂回を止め、実装中のコミット済みテストの書き換えを人に確かめる",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/guard.mjs"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

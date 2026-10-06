@@ -4,7 +4,7 @@
 Anthropic の [AI-native SDLC playbook](https://academy.claude.com/courses/ai-native-sdlc-playbook) の考え方に沿い、
 既存のスキル（Matt Pocock の skills・html-plan・pr-review-toolkit）を段階ごとに呼び分ける。
 
-他のプラグインと違い、function hooks（Mods）ではなくスキルだけでできている。
+他のプラグインと違い、function hooks（Mods）ではなく、スキルと通常の command hook（関所）でできている。
 
 ## 使い方
 
@@ -72,7 +72,10 @@ claude plugin install sdlc-flow@y-ymmt-harnesses
 
 ## プロジェクト側の設定
 
-専用の設定ファイルは無い。リポジトリの `CLAUDE.md`（と `.claude/rules/`、`REVIEW.md`、PR テンプレート、`Makefile` などのビルド定義）から次を読み取る。
+専用の設定ファイルは無い。プロジェクトによって文書の置き方は違うので、概要が書かれていることの多い入口の文書
+（`README.md`・`CLAUDE.md`・`AGENTS.md`）から読み始め、そこから案内されている開発手順や規約の文書をたどる。
+あわせて `.claude/rules/`・`REVIEW.md`・PR テンプレート・`Makefile` などのビルド定義・CI の定義も見て、次を読み取る
+（詳しくは [references/project-settings.md](skills/sdlc-flow/references/project-settings.md)）。
 
 | 項目 | 見つからないとき |
 |---|---|
@@ -82,14 +85,13 @@ claude plugin install sdlc-flow@y-ymmt-harnesses
 | ブランチ命名・コミット書式・PR 書式 | 既定（`feature/<番号>-<説明>`、直近の `git log` の書き方、[PR の形](skills/sdlc-flow/references/pr-body.md)）を使う |
 | レビュー観点・禁止事項 | 無いものとして進める |
 
-聞いた内容は最後の報告で CLAUDE.md への追記案として出す（CLAUDE.md は書き換えない）。CLAUDE.md に書いておくと次から聞かれない。例:
+最後の報告で、次の 2 種類を**そのプロジェクトで載せるのが適切な文書**への追記案として出す（文書は書き換えない）。
 
-```markdown
-## 開発フロー（sdlc-flow）
-- 仕様: Notion の仕様書が正。調査は notion-spec-researcher に任せる
-- チェック: `make test` と `make lint`（`make check` はホストでは tflint が通らないので使わない）
-- ブランチ: `feature/PROJ-XX-description`（master から分岐）
-```
+- 聞いたプロジェクト設定（書いておけば次から聞かれない）
+- ローカルレビューで出た指摘のうち、文書にあれば防げたもの（規約の書き漏れ、繰り返しやすい間違い）
+
+宛先は、同じ種類の情報が既に書かれている文書 → 入口の文書が案内している置き場所 → AI 向けの指示の置き場所（CLAUDE.md・AGENTS.md・`.claude/rules/`）
+→ `README.md` の開発の節、の順に選ぶ。たとえばチェックコマンドが `docs/development.md` に並んでいるプロジェクトなら、そこへの追記案になる。
 
 ## 状態ファイル
 
@@ -100,19 +102,41 @@ claude plugin install sdlc-flow@y-ymmt-harnesses
 ## 確認を取らずにすること・しないこと
 
 - **確認を取らずにする**: ブランチ作成、commit、push、PR 作成（コマンドを打ったことを許可とみなす）
-- **しない**:
-  - 既定ブランチへの push、force push
+- **しない**（hook で機械的に止めるもの）: 下の「関所の hook」を参照
+- **しない**（スキルの指示で守らせるもの）:
   - 未コミットの変更の stash や破棄（止めて聞く）
-  - `--no-verify` で pre-commit フックを飛ばすこと（プロジェクトの文書が手順として明記しているときだけ従う）
-  - テストの期待値を書き換えて通すこと、テストの skip、lint 設定を緩めること
-  - CLAUDE.md の書き換え、チケットへの書き込み（CLAUDE.md が指示しているときだけ）
-  - html-plan のページの Artifact への公開（頼まれたとき、または CLAUDE.md が求めるときだけ）
+  - テストの skip、lint や型検査の設定を緩めること、まだコミットしていないテストを書き換えて通すこと
+  - プロジェクトの文書の書き換え、チケットへの書き込み（プロジェクトの文書が指示しているときだけ）
+  - html-plan のページの Artifact への公開（頼まれたとき、またはプロジェクトの文書が求めるときだけ）
+
+## 関所の hook
+
+`hooks/guard.mjs`（PreToolUse）が、**sdlc-flow が動いているブランチでだけ**次を判定する。
+「動いている」とは、今のブランチの状態ファイルがあり、`phase` が `done` 以外であること。それ以外のブランチや git の外では何もしない
+（普段の作業で使う `--no-verify` などを止めないため）。
+
+| 判定 | 対象 |
+|---|---|
+| deny | 既定ブランチへの push（`git push origin main`、`HEAD:main`、既定ブランチにいて refspec なし） |
+| deny | force push（`--force`、`-f` を含む短いオプション、`--force-with-lease`、`--mirror`、`+` 付きの refspec） |
+| deny | フックの迂回（commit・push・merge の `--no-verify`、commit の `-n`、`LEFTHOOK=0`・`HUSKY=0`、`-c core.hooksPath=…`） |
+| ask | `phase` が `implement` のときに、HEAD にあるテストファイル（`tests/`・`test_*.py`・`*.test.ts`・`*_test.go` など）を Edit・Write すること |
+
+- 既定ブランチは状態ファイルの `base`、無ければ `origin/HEAD` から決める
+- まだコミットしていないテスト（TDD で書いたばかりのもの）は止めない。コミット済みのテストを書き換えるときだけ人に確かめる
+- Bash の `sed` などでテストを書き換えるのは見分けられない（スキルの指示で守らせる）
+- 環境の理由で pre-commit フックが通らないプロジェクトでは、commit のところで止まる。そのときはユーザーが別のターミナルで自分の手で commit し、
+  引数なしの `/sdlc-flow` で続きから再開する
+- 判定に失敗したとき（git が無い、入力が読めないなど）は何もせず、ツールの実行を止めない
+- 動かすには **node** が要る
 
 ## 動作環境と確かめた範囲
 
 | 項目 | 状態 | 補足 |
 |---|---|---|
 | `claude plugin validate` | 確認済み | 警告なしで通る |
+| 関所の hook の判定 | 確認済み | `bun test plugins/sdlc-flow/tests/` の 50 件が通る。一時リポジトリに状態ファイルを置き、`guard.mjs` に入力を流して deny・ask・素通しを確かめた |
+| Claude Code に読み込ませたときの hook の発火 | 確認済み | `claude -p --plugin-dir` で、状態ファイルのある作業ブランチから `git push origin main` を実行させ、hook の deny で止まった（2026-10-06）。ask の発火は未確認 |
 | スキルとしての読み込み・起動 | 確認済み | `claude -p --plugin-dir` で `/sdlc-flow:sdlc-flow` を打ち、依存の確認を通って「状態ファイルが無いので何に取り組むか聞く」ところまで動いた（2026-10-06）。対話画面での起動は未確認 |
 | 0〜7 を通した実行 | 未確認 | 実際のチケットで通しては試していない |
 | html-plan を日本語で書かせること | たぶん動く | pack の ASD-STE100 検査は英語の正規表現による警告だけで、日本語では止まらないことをコードで確かめた |
