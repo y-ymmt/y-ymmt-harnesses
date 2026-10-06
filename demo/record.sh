@@ -1,6 +1,7 @@
 #!/bin/zsh
 # README のデモ GIF を撮る。
 #   ./record.sh reply-prism            1 本だけ
+#   ./record.sh reply-prism.copy       同じプラグインの別の台本（scenes/reply-prism.copy.mjs → gif/reply-prism.copy.gif）
 #   ./record.sh                        全部
 # 要るもの: claude（ログイン済み）、ttyd、ffmpeg、node（npm install 済み）
 set -euo pipefail
@@ -8,7 +9,7 @@ set -euo pipefail
 DEMO=${0:A:h}
 WORK=/tmp/sample-app            # Claude Code の見出しに出るので、見せてよい名前にする
 PORT=${PORT:-7681}
-ALL=(reply-prism next-prompts prompt-trail touch-tree tokyo-board turn-counter)
+ALL=(reply-prism reply-prism.copy next-prompts prompt-trail touch-tree tokyo-board turn-counter)
 PLUGINS=(${@:-$ALL})
 TMP=$(mktemp -d)
 STORE=$HOME/.claude/plugins/store
@@ -24,18 +25,21 @@ fi
 
 cleanup() {
   [[ -n ${TTYD_PID:-} ]] && kill $TTYD_PID 2>/dev/null || true
-  # 録画中にプラグインが覚えた状態（ペインを開いたなど）を元に戻す
+  # 録画中にプラグインが覚えた状態（ペインを開いたなど）と、コピーで書き換わったクリップボード（文字だけ）を元に戻す
   for f in $TMP/store/*(N); do cp $f $STORE/${f:t}; done
+  [[ -f $TMP/clipboard ]] && pbcopy < $TMP/clipboard
 }
 trap cleanup EXIT
 mkdir -p $TMP/store
 cp $STORE/*_y-ymmt-harnesses-*.json $TMP/store/ 2>/dev/null || true
+command -v pbpaste >/dev/null && pbpaste > $TMP/clipboard
 
-for plugin in $PLUGINS; do
-  [[ -f $DEMO/scenes/$plugin.mjs ]] || { echo "scenes/$plugin.mjs が無い" >&2; exit 1 }
+for scene in $PLUGINS; do
+  plugin=${scene%%.*}
+  [[ -f $DEMO/scenes/$scene.mjs ]] || { echo "scenes/$scene.mjs が無い" >&2; exit 1 }
 
   # 毎回まっさらな見本のリポジトリから始める
-  [[ -e $WORK ]] && mv $WORK $TMP/old-$plugin-$RANDOM
+  [[ -e $WORK ]] && mv $WORK $TMP/old-$scene-$RANDOM
   cp -R $DEMO/workspace $WORK
   (cd $WORK && git init -q && git add -A && git -c user.name=demo -c user.email=demo@example.com commit -qm init)
 
@@ -61,7 +65,7 @@ EOF
   sleep 1
   # プラグインのフォルダに置くと、インストールのたびに GIF まで配られるので demo/gif に置く
   mkdir -p $DEMO/gif
-  node $DEMO/run.mjs $plugin $PORT $DEMO/gif/$plugin.gif
+  node $DEMO/run.mjs $scene $PORT $DEMO/gif/$scene.gif
   kill $TTYD_PID 2>/dev/null || true
   TTYD_PID=
   sleep 1

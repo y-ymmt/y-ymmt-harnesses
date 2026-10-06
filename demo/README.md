@@ -12,6 +12,7 @@ cd demo
 npm install            # 初回だけ
 ./record.sh            # 全部
 ./record.sh reply-prism next-prompts   # 指定したものだけ
+./record.sh reply-prism.copy           # 同じプラグインの別の台本（scenes/reply-prism.copy.mjs）
 ```
 
 要るもの: ログイン済みの `claude`、`ttyd`、`ffmpeg`、`node`。各プラグインはこの marketplace から入れておく
@@ -32,6 +33,7 @@ npm install            # 初回だけ
 録画のブラウザには OS のマウスカーソルが映らないので、矢印と押したときの波紋をページに描き足している（`lib.mjs` の `CURSOR`）。
 
 録画中にプラグインが覚えた状態（touch-tree のペインを開いたなど）は、終わったら `~/.claude/plugins/store/` を元に戻す。
+コピーの台本はクリップボードを書き換えるので、撮る前の中身を終わったら戻す（`pbpaste` で取れる文字だけ。画像などは戻らない）。
 
 ## 台本の書き方
 

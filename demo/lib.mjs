@@ -130,3 +130,11 @@ export async function ask(s, text, { speed = 4, quiet = 2000 } = {}) {
     await settle(s.page, quiet)
   })
 }
+
+/** クリップボードの中身を、端末に貼り付けたときと同じ形（括弧つきペースト）で入力欄に入れる。 */
+export async function pasteClipboard(page) {
+  const { execFileSync } = await import('node:child_process')
+  const text = execFileSync('pbpaste').toString()
+  await page.evaluate(t => window.term.paste(t), text)
+  return text
+}

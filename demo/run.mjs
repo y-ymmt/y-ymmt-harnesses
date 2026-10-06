@@ -1,5 +1,5 @@
 // 台本を 1 本動かして録画し、GIF にする。record.sh から呼ぶ。
-//   node run.mjs <plugin> <port> <出力 GIF>
+//   node run.mjs <台本> <port> <出力 GIF>
 //
 // 録画は Chrome の screencast（画面が変わるたびに 1 コマ届く）で撮り、届いた時刻で並べる。
 // Playwright の動画録画は始まりの時刻が台本の時計とずれるため使わない。
@@ -11,8 +11,8 @@ import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { CURSOR, H, REST, W, screenText, settle } from './lib.mjs'
 
-const [plugin, port, gif] = process.argv.slice(2)
-const { default: scene } = await import(`./scenes/${plugin}.mjs`)
+const [name, port, gif] = process.argv.slice(2)
+const { default: scene } = await import(`./scenes/${name}.mjs`)
 
 const frameDir = mkdtempSync(join(tmpdir(), 'demo-frames-'))
 const browser = await chromium.launch()

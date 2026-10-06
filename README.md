@@ -23,6 +23,10 @@ Claude Code 用のプラグイン（marketplace）。
 
 ![reply-prism のデモ](demo/gif/reply-prism.gif)
 
+表の右上のボタンで表だけを、返事の下の「コピー:」で返事全体を、貼り先に合う形でコピーする（ここでは入力欄に貼って中身を見せている）。
+
+![reply-prism のコピーのデモ](demo/gif/reply-prism.copy.gif)
+
 ### next-prompts
 
 返事のあとに次の一手の候補が並び、`/1` と空白で 1 つ目を入力欄に入れる。

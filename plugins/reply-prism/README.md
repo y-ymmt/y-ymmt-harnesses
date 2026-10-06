@@ -5,6 +5,8 @@ Claude Code プラグイン（function hooks）。
 
 ![reply-prism のデモ: 表の返事を、見出しの ⇅ で並べ替える](../../demo/gif/reply-prism.gif)
 
+![reply-prism のデモ: 表の Markdown コピーと、返事まるごとの GitHub 用コピー。コピーした中身を入力欄に貼って見せている](../../demo/gif/reply-prism.copy.gif)
+
 **[prismantis](https://github.com/NahumLitvin/prismantis)（作者 [Nahum Litvin](https://github.com/NahumLitvin)、MIT ライセンス）を元にした改変版**で、
 コミット `b13de6c9ec39e01946943f67b07e5fae4aefd939`（2026-10-04、prismantis 0.6.0）を取り込み、次の 6 つの機能を足し、本家の描き方も 4 か所直している。
 
