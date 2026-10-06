@@ -13,6 +13,46 @@ Claude Code 用のプラグイン（marketplace）。
 
 いずれも function hooks（Mods）で作っている。Claude Code 2.1.287 以降は追加の設定なしで動く。
 
+## 見た目
+
+実際の Claude Code で撮ったもの（撮り方は [demo/README.md](demo/README.md)）。
+
+### reply-prism
+
+表の返事を、見出しの ⇅ で並べ替える。
+
+![reply-prism のデモ](demo/gif/reply-prism.gif)
+
+### next-prompts
+
+返事のあとに次の一手の候補が並び、`/1` と空白で 1 つ目を入力欄に入れる。
+
+![next-prompts のデモ](demo/gif/next-prompts.gif)
+
+### prompt-trail
+
+打ったプロンプトが帯の棒に並ぶ。棒にホバーしてカードを読み、`[ 入力欄へ ]` で打ち直す。
+
+![prompt-trail のデモ](demo/gif/prompt-trail.gif)
+
+### touch-tree
+
+読んだ・編集したファイルが、リポジトリのツリーに沿ってペインに並ぶ。
+
+![touch-tree のデモ](demo/gif/touch-tree.gif)
+
+### tokyo-board
+
+天気パネルと電光掲示板（運行情報・ニュース）。
+
+![tokyo-board のデモ](demo/gif/tokyo-board.gif)
+
+### turn-counter
+
+作業中のスピナーが、このセッションの何ターン目かに変わる。
+
+![turn-counter のデモ](demo/gif/turn-counter.gif)
+
 ## 入れ方
 
 ```sh

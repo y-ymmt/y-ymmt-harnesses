@@ -6,6 +6,8 @@
 Claude Code プラグイン（function hooks）。棒にホバーするとそのプロンプトとターンの要約が読め、クリックで
 会話のその位置へ飛ぶ。
 
+![prompt-trail のデモ: 打ったプロンプトが帯の棒に並ぶ。棒にホバーしてカードを読み、`[ 入力欄へ ]` で打ち直す](../../demo/gif/prompt-trail.gif)
+
 **[prompt-rail](https://github.com/oikon48/prompt-rail)（作者 [oikon48](https://github.com/oikon48)、MIT ライセンス）を元にした改変版**で、
 コミット `2ac50fb87fc426fed89ba0f09f1784ef6f289ae8`（prompt-rail 0.7.1、「Release 0.7.1 (#56)」）を取り込み、次の 6 つを足している。
 

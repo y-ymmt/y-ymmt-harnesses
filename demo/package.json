@@ -1,0 +1,9 @@
+{
+  "name": "y-ymmt-harnesses-demo",
+  "private": true,
+  "type": "module",
+  "description": "README のデモ GIF を撮る台本と道具",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

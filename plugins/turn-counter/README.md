@@ -3,6 +3,8 @@
 ターン中のスピナーを、**このセッションで何ターン目か**の表示に差し替える Claude Code
 プラグイン（function hooks）。ツールが拒否されると、その行が一瞬「ざわっ！」になる。
 
+![turn-counter のデモ: 作業中のスピナーが、このセッションの何ターン目かに変わる](../../demo/gif/turn-counter.gif)
+
 ```
 ターン 12
 Sauteing
