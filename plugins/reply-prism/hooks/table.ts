@@ -14,9 +14,10 @@ const PLACEHOLDER = /^(?:|-|–|—|―|N\/?A|n\/a|null|NULL|None|none|なし|�
 const SIZE: Record<string, number> = { b: 1, k: 1024, kb: 1024, kib: 1024, ki: 1024, m: 1024 ** 2, mb: 1024 ** 2, mib: 1024 ** 2, mi: 1024 ** 2, g: 1024 ** 3, gb: 1024 ** 3, gib: 1024 ** 3, gi: 1024 ** 3, t: 1024 ** 4, tb: 1024 ** 4, tib: 1024 ** 4, ti: 1024 ** 4 }
 const TIME: Record<string, number> = { ms: 1, s: 1000, sec: 1000, 秒: 1000, m: 60_000, min: 60_000, 分: 60_000, h: 3_600_000, 時間: 3_600_000, d: 86_400_000, 日: 86_400_000 }
 
-/** `1,234` `-5.2` `12%` `250ms` `3.5GB` `¥1,200` `42件` → 比べるための数。単位が時間・容量なら揃える。 */
+/** `1,234` `-5.2` `12%` `250ms` `3.5GB` `¥1,200` `42件` `約1,121` → 比べるための数。単位が時間・容量なら揃える。 */
 export const parseNumber = (text: string): number | undefined => {
-  const s = text.trim().replace(/^[¥$€£]\s*/, '').replace(/^−/, '-')
+  // 概数の印（`約` `~` など）は外して比べる。外さないと文字として並び、`約1,121` が `約225` より前に来る。
+  const s = text.trim().replace(/^(?:約|およそ|[~〜～≈])\s*/, '').replace(/^[¥$€£]\s*/, '').replace(/^−/, '-')
   const compound = /^(?:\d+(?:\.\d+)?\s*(?:ms|h|m|s|d)\s*){2,}$/i.test(s)
   if (compound) {
     let total = 0

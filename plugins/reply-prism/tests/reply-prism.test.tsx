@@ -510,6 +510,7 @@ describe('5. 表を列で並べ替える', () => {
   test('数・バージョン・日時・文字の並び。空の値はいつも最後', async () => {
     const order = (values: string[], dir: 'asc' | 'desc' = 'asc') => sortOrder(values.map(v => [v]), 0, dir).map(i => values[i])
     expect(order(['10', '9', '-', '100', '1,000'])).toEqual(['9', '10', '100', '1,000', '-'])
+    expect(order(['約1,121', '約225', '約628', '~343'])).toEqual(['約225', '~343', '約628', '約1,121'])
     expect(order(['10', '9', '-', '100'], 'desc')).toEqual(['100', '10', '9', '-'])
     expect(order(['v1.10.0', 'v1.2.0', 'v1.9.3'])).toEqual(['v1.2.0', 'v1.9.3', 'v1.10.0'])
     expect(order(['1.0.0', '1.0.0-rc.1'])).toEqual(['1.0.0-rc.1', '1.0.0'])
