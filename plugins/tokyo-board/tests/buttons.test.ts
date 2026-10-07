@@ -5,6 +5,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { DEFAULT_NEWS_FEEDS, parseFeedSpecs } from '../hooks/news'
+import { LINK_PREFIX, hrefOfLinkKey } from '../hooks/hooks'
 
 tier('user')
 
@@ -101,7 +102,9 @@ test('時間帯の中: ボードの下に「天気・運行を隠す」が 1 つ
   const tb = await boot($, on, 18)
   const ui = await $.ui.mount(BAND)
 
-  expect((await ui.findAll({ type: 'Button' })).map(button => button.key)).toEqual([TOGGLE])
+  const buttons = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+  expect(buttons.filter(key => !key.startsWith(LINK_PREFIX))).toEqual([TOGGLE])
+  expect(buttons.some(key => key.startsWith(LINK_PREFIX)), '地名・路線名・見出しはリンク先を開くボタン').toBe(true)
   expect((await ui.find({ key: TOGGLE }))?.props['label']).toBe('天気・運行を隠す')
   expect(await ui.findAll({ type: 'Text', text: /NEWS/ }), 'ボードを描いている').toHaveLength(1)
 
@@ -278,12 +281,34 @@ const OSAKA_WARNING = JSON.stringify({
 test('警報と天気のリンクは warningArea の府県のページ（大阪 270000）', { options: { warningArea: '270000', placeName: '大阪' } }, async ($, on) => {
   const tb = await boot($, on, 18, { answer: url => (url.endsWith('/warning/270000.json') ? OSAKA_WARNING : null) })
   const ui = await $.ui.mount(BAND)
-  const hrefs = (await ui.findAll({ type: 'Link' })).map(link => String(link.props['href']))
+  const hrefs = (await ui.findAll({ type: 'Button' })).map(button => hrefOfLinkKey(String(button.key))).filter(href => href !== null)
 
   expect(tb.fetched, '警報は大阪府のぶんを取りにいく').toContain('https://www.jma.go.jp/bosai/warning/data/warning/270000.json')
   expect(hrefs, '天気パネルの見出し').toContain('https://www.jma.go.jp/bosai/forecast/#area_type=offices&area_code=270000')
   expect(hrefs, '▲ 行').toContain('https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code=270000')
   expect(hrefs.filter(href => href.includes('130000')), '東京のページは指さない').toEqual([])
+
+  await ui.unmount()
+})
+
+test('地名・路線名・警報のボタンを押すと、そのリンク先を open に渡す（http(s) のほかは開かない）', { options: { warningArea: '270000', placeName: '大阪' } }, async ($, on) => {
+  const runs: string[][] = []
+  on('process.run', (_, e) => {
+    runs.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  await boot($, on, 18, { answer: url => (url.endsWith('/warning/270000.json') ? OSAKA_WARNING : null) })
+  const ui = await $.ui.mount(BAND)
+  const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key)).filter(key => key.startsWith(LINK_PREFIX))
+  const panel = keys.find(key => hrefOfLinkKey(key)?.includes('/forecast/'))
+  expect(panel, '天気パネルの見出し').toBeDefined()
+
+  await ui.press({ key: panel! })
+  expect(runs).toEqual([['open', 'https://www.jma.go.jp/bosai/forecast/#area_type=offices&area_code=270000']])
+
+  expect(hrefOfLinkKey(`${LINK_PREFIX}0:file:///etc/passwd`)).toBeNull()
+  expect(hrefOfLinkKey(`${LINK_PREFIX}3:https://example.com/a:b`)).toBe('https://example.com/a:b')
+  expect(hrefOfLinkKey('board-toggle')).toBeNull()
 
   await ui.unmount()
 })

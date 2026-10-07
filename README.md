@@ -101,7 +101,8 @@ claude plugin install sdlc-flow@y-ymmt-harnesses   # 依存の入れ方は plugi
 - **クリック**: ボタンをクリックで押せるのは全画面表示の端末だけ（Claude Code がクリックを Mod に渡すのはそのときだけ）。
   全画面表示でないときは ctrl+x tab でボタンのある場所に移り、Tab と Enter で押す
 - **リンク**: Orca の全画面表示では、`Link` の `https://` はクリックで開いたが、`vscode://` はクリックでも cmd+クリックでも開かなかった。
-  そのため touch-tree と reply-prism は、ボタンを押すと `open`（無ければ `xdg-open`）に URL を渡して開くようにしている。
+  そのため touch-tree・reply-prism・tokyo-board は、ボタンを押すと `open`（無ければ `xdg-open`）に URL を渡して開くようにしている
+  （OSC 8 のリンクを描けない Apple の「ターミナル」でも、URL の文字で表示が崩れない）。
   **Windows 用の開き方は無い**
 - **文字の幅**: 全角は 2 桁、罫線や `●` `■` `▲` などは 1 桁として桁を揃えている。曖昧な幅の文字を 2 桁で描く設定の端末では桁がずれる（推測）
 - **表示面**: 帯・スピナー・リンクは端末（`e.surface === 'terminal'`）を前提にしている。デスクトップアプリ・VS Code 拡張・モバイルでの見た目は作者は確かめていない

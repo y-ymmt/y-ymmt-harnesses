@@ -19,6 +19,8 @@ export type Run = {
   readonly backgroundColor?: string
   readonly dimColor?: boolean
   readonly bold?: boolean
+  /** 押すとその行のリンク先を開くボタンにする部分（地名・路線名・警報の文）。 */
+  readonly isLink?: boolean
 }
 
 /** 1 行。 */
@@ -241,13 +243,13 @@ export function weatherPanel(
   const head: Line = clockFits
     ? [
         { text: '┌', color: tint },
-        { text: title, color: tint, bold: true },
+        { text: title, color: tint, bold: true, isLink: true },
         { text: '─'.repeat(rule), color: tint },
         { text: '┐', color: tint },
       ]
     : [
         { text: '┌', color: tint },
-        { text: title, color: tint, bold: true },
+        { text: title, color: tint, bold: true, isLink: true },
         { text: '─'.repeat(Math.max(0, rule - displayWidth(clock) - 2)), color: tint },
         { text: clock, color: '#8A8A8A', dimColor: isStale },
         { text: ' ─', color: tint },
@@ -434,15 +436,14 @@ export function transitBoard(
 
   const rows = shownLines.map((line, index): Line => {
     const led = line.isNormal ? LED_OK : LED_ALERT
+    const name = padTo(line.name, nameWidth).trimEnd()
 
     return [
       { text: '║', color: BOARD_FRAME },
       { text: ' ■ ', color: lineColorOf(line.name), backgroundColor: BOARD_BACK },
-      {
-        text: padTo(line.name, nameWidth),
-        color: '#E6E6E6',
-        backgroundColor: BOARD_BACK,
-      },
+      // 路線名だけをボタンにし、名前の後ろの空きは別の断片にする（押せる幅を名前に合わせる）。
+      { text: name, color: '#E6E6E6', backgroundColor: BOARD_BACK, isLink: true },
+      { text: ' '.repeat(nameWidth - displayWidth(name)), backgroundColor: BOARD_BACK },
       {
         text: marqueeOf(line.text, window, step),
         color: led,
@@ -483,12 +484,13 @@ function blankRow(inner: number): Line {
 function alertRow(alert: Alerts, inner: number, step: number, place: string): Line {
   const room = Math.max(4, inner - 3)
   const text = alertTextOf(alert, place)
-  const body = displayWidth(text) <= room ? padTo(text, room) : marqueeOf(text, room, step)
+  const body = displayWidth(text) <= room ? text : marqueeOf(text, room, step)
 
   return [
     { text: '║', color: BOARD_FRAME },
     { text: ` ${ALERT_MARK} `, color: alertColorOf(alert), backgroundColor: BOARD_BACK, bold: true },
-    { text: body, color: alertColorOf(alert), backgroundColor: BOARD_BACK, bold: true },
+    { text: body, color: alertColorOf(alert), backgroundColor: BOARD_BACK, bold: true, isLink: true },
+    { text: ' '.repeat(Math.max(0, room - displayWidth(body))), backgroundColor: BOARD_BACK },
     { text: '║', color: BOARD_FRAME },
   ]
 }

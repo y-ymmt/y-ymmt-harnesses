@@ -241,7 +241,7 @@ export function interleave(picked: readonly (readonly NewsItem[])[], count: numb
 /**
  * 流す 1 本の文と、どこが誰の見出しかを作る。
  *
- * 区切りは直前の見出しの区間に含める（区切りの上に居てもリンクが外れないように）。
+ * 区切り（`　◆　`）はどの見出しの区間にも入れない（押せる範囲を見出しの字だけにする）。
  *
  * @param items 並べ終えた見出し
  */
@@ -256,7 +256,7 @@ export function newsLineOf(items: readonly NewsItem[]): NewsLine {
     const own = displayWidth(part)
     const gap = index === parts.length - 1 ? 0 : displayWidth(NEWS_SEPARATOR)
 
-    spans.push({ from, to: from + own + gap, href: items[index]?.link ?? '' })
+    spans.push({ from, to: from + own, href: items[index]?.link ?? '' })
     at = from + own + gap
   })
 
@@ -280,8 +280,8 @@ function hrefAt(spans: NewsLine['spans'], at: number): string | null {
  *
  * 位置の決め方は `marqueeOf` と同じ（文の左端が窓座標 `window - step`、周期は
  * 文の幅 ＋ 窓の幅）。断片の字をつなぐと `marqueeOf` の返す文とちょうど同じに
- * なるので、窓の桁は変わらない。区切り（`　◆　`）は直前の見出しに含める
- * （`newsLineOf` が span をそう作っている）。
+ * なるので、窓の桁は変わらない。区切り（`　◆　`）はどの見出しにも属さないので
+ * `href` は null（`newsLineOf` が span をそう作っている）。
  *
  * 窓の端に半分だけかかる全角は、`marqueeOf` と同じく空白に置き換える。その空白は
  * どの見出しにも属さないので `href` は null。

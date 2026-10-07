@@ -149,6 +149,48 @@ async function start($: EngineInterface, board: Board): Promise<void> {
 /** ボードを出し入れするボタンの key。帯のいちばん下に固定で置く。 */
 const TOGGLE_BUTTON = 'board-toggle'
 
+/** プラグイン名。`ui.press` の持ち主。 */
+const PLUGIN = 'tokyo-board'
+
+/** リンク先を開くボタンの key の頭。後ろに `<通し番号>:<URL>` が付く。 */
+export const LINK_PREFIX = 'board-link:'
+
+/** リンク先を開くボタンの key（同じ URL が 1 つの描画に 2 度出ても重ならないよう、通し番号を挟む）。 */
+export function linkKeyOf(href: string, index: number): string {
+  return `${LINK_PREFIX}${index}:${href}`
+}
+
+/** ボタンの key から開く URL を取り出す。この Mod のリンクのボタンでない、または http(s) でなければ null。 */
+export function hrefOfLinkKey(key: string): string | null {
+  if (!key.startsWith(LINK_PREFIX)) return null
+  const rest = key.slice(LINK_PREFIX.length)
+  const href = rest.slice(rest.indexOf(':') + 1)
+  // ニュースの URL は配信元の RSS から来るので、ブラウザで開く http(s) のほかは渡さない。
+  return /^https?:\/\//i.test(href) ? href : null
+}
+
+/** URL を既定のブラウザで開く（macOS は open、それ以外は xdg-open）。開けなければトーストで知らせる。 */
+async function openUrl($: EngineInterface, url: string): Promise<void> {
+  let failure: string | null = null
+
+  for (const opener of ['open', 'xdg-open']) {
+    try {
+      const { exitCode, stderr } = await $.process.run([opener, url], { timeoutMs: 10_000 })
+
+      if (exitCode === 0) return
+
+      failure = stderr.trim().split('\n')[0] ?? ''
+    } catch {
+      // このコマンドが無い。次を試す。
+    }
+  }
+
+  $.ui.toast(
+    failure === null ? 'リンクを開くコマンド（open / xdg-open）が見つかりません' : `開けませんでした: ${failure}`.trim(),
+    { timeoutMs: 5_000 },
+  )
+}
+
 // ボタンの常時の背景（ホバーの反転とは別の層）。Button には背景色の指定が無い（文字のスタイルと
 // hover だけ）ので Box で包んで塗る。テーマの userMessageBackground では薄くて見えなかったので、
 // 暗い背景で目立つ濃い灰青にする。
@@ -701,6 +743,15 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // 地名・路線名・警報・ニュースの見出しのボタン。リンク先をブラウザで開く。
+  on('ui.press', async ($, e, next) => {
+    const href = e.plugin === PLUGIN ? hrefOfLinkKey(e.element) : null
+
+    if (href !== null) await openUrl($, href)
+
+    return next(e)
+  })
+
   // 帯の下の固定ボタン。出していれば畳み、畳んでいれば出す。
   on('ui.press', { element: TOGGLE_BUTTON }, async ($, e, next) => {
     // 時間帯の中で畳むなら「隠す」、外で出すなら「出す」を覚える。
@@ -747,7 +798,7 @@ export const register: Register = (on, options) => {
       return beneath
     }
 
-    const { Box, Text, Link, Button } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
 
     /**
      * ボタンの押し込み。中身は `ui.press` フックで進めるので、ここは何もしない。
@@ -755,6 +806,7 @@ export const register: Register = (on, options) => {
      * （`$` をトップレベル以外の関数に閉じ込めると `validate --strict` が嫌がる）
      */
     const pressToggle = (): void => undefined
+    const pressLink = (): void => undefined
 
     // ボードの下に置く出し入れボタン。ボードの有無で位置が動かない。
     const visible = isVisible(board) && PANEL_ROWS + 1 <= e.props.maxRows
@@ -812,24 +864,47 @@ export const register: Register = (on, options) => {
     const alertAt = alertRows === 0 ? -1 : 1 + railCount
     const newsAt = BOARD_ROWS - 2
 
-    /** 1 行ぶんの色付きの字。 */
-    const runsOf = (line: Line): RenderElement[] =>
-      line.map(run => (
-        <Text
-          color={run.color}
-          backgroundColor={run.backgroundColor}
-          dimColor={run.dimColor}
-          bold={run.bold}
-        >
-          {run.text}
-        </Text>
-      ))
+    // リンク先を開くボタンの key に付ける通し番号（同じ見出しが窓に 2 度出ても key が重ならないように）。
+    let linkCount = 0
 
-    /** 見出しの行だけリンクにする。 */
+    /**
+     * 押すと href を開く、枠の無いボタン。
+     *
+     * mac 標準のターミナルのように OSC 8 のリンクを描けない端末では、`Link` は URL の文字を並べて
+     * 枠を崩す。ボタンならどの端末でも見た目は字のままで、押すと `ui.press` で自分で開く。
+     * ボタンの字は 1 色しか持てないので、地の色だけ外の Box で敷く。
+     */
+    const linkButton = (text: string, href: string, backgroundColor?: string): RenderElement => {
+      const key = linkKeyOf(href, linkCount++)
+      return (
+        <Box key={`${key}.back`} flexShrink={0} {...(backgroundColor === undefined ? {} : { backgroundColor })}>
+          <Button key={key} label={text} plain onPress={pressLink} />
+        </Box>
+      )
+    }
+
+    /** 1 行ぶんの色付きの字。`href` があれば、`isLink` の断片をそのリンク先を開くボタンにする。 */
+    const runsOf = (line: Line, href: string | null = null): RenderElement[] =>
+      line.map(run =>
+        href !== null && run.isLink === true ? (
+          linkButton(run.text, href, run.backgroundColor)
+        ) : (
+          <Text
+            color={run.color}
+            backgroundColor={run.backgroundColor}
+            dimColor={run.dimColor}
+            bold={run.bold}
+          >
+            {run.text}
+          </Text>
+        ),
+      )
+
+    /** 見出しの行（地名）だけをボタンにする。 */
     const panelOf = (lines: Line[], href: string): RenderElement[] =>
       lines.map((line, index) =>
         index === 0 ? (
-          <Link href={href}>{runsOf(line)}</Link>
+          <Box flexDirection="row">{runsOf(line, href)}</Box>
         ) : (
           <Text wrap="truncate-end">{runsOf(line)}</Text>
         ),
@@ -855,11 +930,7 @@ export const register: Register = (on, options) => {
                           {run.text}
                         </Text>
                       ) : (
-                        <Link href={run.href}>
-                          <Text color={NEWS_TEXT} backgroundColor={BOARD_BACK}>
-                            {run.text}
-                          </Text>
-                        </Link>
+                        linkButton(run.text, run.href, BOARD_BACK)
                       ),
                     )}
                     <Text color={BOARD_FRAME}>║</Text>
@@ -878,7 +949,7 @@ export const register: Register = (on, options) => {
               return href === null ? (
                 <Text wrap="truncate-end">{runsOf(line)}</Text>
               ) : (
-                <Link href={href}>{runsOf(line)}</Link>
+                <Box flexDirection="row">{runsOf(line, href)}</Box>
               )
             })}
           </Box>
