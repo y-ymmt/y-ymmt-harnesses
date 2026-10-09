@@ -291,8 +291,9 @@ export async function existingFiles($: EngineInterface, cache: ExistsCache, path
 export const register: Register = (on, options) => {
   if (options.enabled === false) return
   const resolved = resolveStyle(options)
-  // 端末以外（デスクトップアプリなど）は白地のことが多いので、配色は `desktopTheme` のものにする
-  const style: Style = { ...resolved, theme: desktopThemeOf(options) }
+  // 端末以外（デスクトップアプリなど）は白地のことが多いので、配色は `desktopTheme` のものにする。
+  // 表は標準の Markdown で描く（文字の幅がそろわず、文字数で組んだ表は崩れるため）
+  const style: Style = { ...resolved, theme: desktopThemeOf(options), nativeTables: true }
   const where = { cwd: '', home: '' }
   // パスのリンク（OSC 8）は端末でだけ描く。デスクトップなどは https 以外のリンクを描かないため。
   const terminalStyle: Style = { ...resolved, fileLinks: makeLinker(style.editor, style.editorUrlTemplate, where), fileTargets: makeResolver(style.editor, style.editorUrlTemplate, where) }
@@ -412,7 +413,8 @@ export const register: Register = (on, options) => {
         <Box width={2} flexShrink={0}>
           <Text color={s.theme.accent}>{e.props.isFirstOfReply ? '⏺' : ' '}</Text>
         </Box>
-        <Box flexDirection="column" rowGap={1} flexGrow={1}>
+        {/* 中身の幅で広がらず、残りの幅に収める（minWidth 0 が無いと、幅の広い子に合わせて返事ごとはみ出す） */}
+        <Box flexDirection="column" rowGap={1} flexGrow={1} flexShrink={1} minWidth={0}>
           {drawMarkdown($, el, s, blocks, columns, controls)}
           {renderOpenRow(el, s, buttons)}
           {whole ? renderReplyCopyRow(el, s.replyCopyFormats, whole, makeCopy($, el, { ...s, copyButtons: true }, clipboard)) : null}

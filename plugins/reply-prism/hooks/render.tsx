@@ -7,7 +7,7 @@ import type { Block, Inline } from './markdown'
 import { inlineText, plainText } from './markdown'
 import type { Range } from './danger'
 import { dangerRanges, splitByRanges } from './danger'
-import { stripLine, stripMarks, stripTable } from './mark'
+import { rewriteMarks, stripLine, stripMarks, stripTable } from './mark'
 import type { OpenTarget } from './paths'
 import { isPathLike, isWebUrl, openKey, openLabel, urlKey, urlLabel } from './paths'
 import type { ReplyFormat } from './reply'
@@ -447,7 +447,20 @@ const tableCopyText = (block: Extract<Block, { kind: 'table' }>, view: BlockView
   }
 }
 
+/** Markdown 要素に渡せる文字数の上限。超える表は標準の描き方に任せず、こちらで描く。 */
+const MARKDOWN_LIMIT = 10_000
+
+/** 標準の Markdown で描く表の文。注意箇所（`==x==`）は標準の Markdown に無いので太字（`**x**`）にする。 */
+const nativeTableText = (block: Extract<Block, { kind: 'table' }>): string =>
+  block.raw.includes('==') ? block.raw.split('\n').map(line => rewriteMarks(line, '**')).join('\n') : block.raw
+
+/** 表を Claude Code 標準の Markdown で描くか（`nativeTables` の表示面で、上限に収まる表）。 */
+const isNativeTable = (style: Style, block: Extract<Block, { kind: 'table' }>): boolean =>
+  style.nativeTables === true && nativeTableText(block).length <= MARKDOWN_LIMIT
+
 const renderTable = (el: ElementTable, style: Style, block: Extract<Block, { kind: 'table' }>, columns: number, key: string, id: string, controls?: Controls) => {
+  // reply-prism: デスクトップアプリなどでは標準の Markdown で描く（並べ替え・畳むはしない。コピーのボタンは残る）
+  if (isNativeTable(style, block)) return <el.Markdown key={key} text={nativeTableText(block)} />
   const { Box, Text, Button } = el
   const t = style.theme
   const view = controls?.view[id] ?? {}
@@ -638,7 +651,7 @@ export type Drawn = Map<number, { element: RenderElement; art: string }>
 /** 表の上に並べるボタン: 形式ごとのコピーと、開いているときの［畳む］。 */
 const tableButtons = (el: ElementTable, style: Style, block: Extract<Block, { kind: 'table' }>, id: string, b: number, copy?: CopyButton, controls?: Controls): RenderElement | null => {
   const view = controls?.view[id] ?? {}
-  const hidden = hiddenCount(style, controls, block.rows.length)
+  const hidden = isNativeTable(style, block) ? 0 : hiddenCount(style, controls, block.rows.length)
   const buttons = [
     ...(hidden && view.open && controls ? [foldButton(el, style, controls, id, `foldtop${b}`, hidden, true)] : []),
     ...style.tableCopyFormats.map(format => copy?.(() => tableCopyText(block, controls?.view[id] ?? {}, format), `copy${b}.${format}`, COPY_LABEL[format], COPY_DONE[format]) ?? null),
@@ -717,8 +730,18 @@ export const renderBlocks = (el: ElementTable, style: Style, blocks: Block[], co
         {button}
       </Box>
     ) : (
-      <Box key={`c${b}`} flexDirection="column" {...(rtl && (block?.kind === 'list' || (block?.kind === 'table' && isRtlTable(style, block))) ? {} : { alignSelf: 'flex-start' as const })}>
-        <Box justifyContent="flex-end">{button}</Box>
+      <Box
+        key={`c${b}`}
+        flexDirection="column"
+        {...(block?.kind === 'table' && isNativeTable(style, block)
+          ? // 標準の Markdown で描く表は、中身の幅に合わせず親の幅に収める（中身に合わせると返事ごと横にはみ出して右が切れる）
+            { alignSelf: 'auto' as const, minWidth: 0 }
+          : rtl && (block?.kind === 'list' || (block?.kind === 'table' && isRtlTable(style, block)))
+            ? {}
+            : { alignSelf: 'flex-start' as const })}
+      >
+        {/* 標準の Markdown で描いた表は幅いっぱいに広がるので、コピーのボタンは左に置く（右端だと見切れることがある） */}
+        <Box justifyContent={block?.kind === 'table' && isNativeTable(style, block) ? 'flex-start' : 'flex-end'}>{button}</Box>
         {element}
       </Box>
     )

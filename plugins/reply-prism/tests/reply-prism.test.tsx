@@ -386,10 +386,11 @@ describe('3b. Claude が ==…== で囲んだ注意箇所', () => {
     await ui.unmount()
   })
 
-  test('デスクトップでも == は描かない', async $ => {
+  test('デスクトップでも == は描かない（表は標準の Markdown に任せ、印は太字にする）', async $ => {
     const ui = await $.ui.mount(reply('- ==全件== を消す\n\n| a |\n|---|\n| ==停止== |', 'desktop'))
-    expect(await dangerTexts(ui)).toEqual(['全件', '停止'])
+    expect(await dangerTexts(ui)).toEqual(['全件'])
     expect(await hasMarkSymbol(ui)).toBe(false)
+    expect(String((await ui.find({ type: 'Markdown' }))?.props.text)).toBe('| a |\n|---|\n| **停止** |')
     await ui.unmount()
   })
 

@@ -49,16 +49,23 @@ test('user colors override the theme, bad colors are ignored', async () => {
 /** 既定の配色: 端末は theme（catppuccin-mocha）、デスクトップは desktopTheme（github-light）。 */
 const presetFor = (surface: 'terminal' | 'desktop') => PRESETS[surface === 'terminal' ? 'catppuccin-mocha' : 'github-light']
 
-test('draws a colored table on terminal and desktop', async $ => {
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...draw(TABLE), surface })
-    const header = await ui.find({ type: 'Text', text: /^Service$/ })
-    expect(header?.props.color).toBe(presetFor(surface).tableHeader)
-    expect(header?.props.bold).toBe(true)
-    const version = await ui.find({ type: 'Text', text: /^2\.14\.0$/ })
-    expect(version?.props.color).toBe(presetFor(surface).number)
-    await ui.unmount()
-  }
+test('draws a colored table on the terminal', async $ => {
+  const ui = await $.ui.mount({ ...draw(TABLE), surface: 'terminal' })
+  const header = await ui.find({ type: 'Text', text: /^Service$/ })
+  expect(header?.props.color).toBe(presetFor('terminal').tableHeader)
+  expect(header?.props.bold).toBe(true)
+  const version = await ui.find({ type: 'Text', text: /^2\.14\.0$/ })
+  expect(version?.props.color).toBe(presetFor('terminal').number)
+  await ui.unmount()
+})
+
+test('on the desktop a table is left to the standard markdown, with the copy buttons kept', async $ => {
+  const ui = await $.ui.mount({ ...draw(TABLE), surface: 'desktop' })
+  const md = await ui.find({ type: 'Markdown' })
+  expect(String(md?.props.text)).toBe(TABLE)
+  expect(await ui.find({ type: 'Text', text: /^Service$/ }), 'こちらでは描かない').toBeUndefined()
+  expect((await ui.findAll({ type: 'Button' })).map(b => String(b.key)).filter(k => k.startsWith('copy')).length).toBeGreaterThan(0)
+  await ui.unmount()
 })
 
 test('options reach the drawing', { options: { tableHeaderColor: '#123456', highlightNumbers: false } }, async $ => {
@@ -183,15 +190,15 @@ test('file tools show the path in the path color and failures say so', async $ =
 
 test('desktopTheme picks the desktop palette; same follows theme; the terminal keeps theme', { options: { theme: 'tokyo-night', desktopTheme: 'solarized-light' } }, async $ => {
   for (const [surface, preset] of [['terminal', 'tokyo-night'], ['desktop', 'solarized-light']] as const) {
-    const ui = await $.ui.mount({ ...draw(TABLE), surface })
-    expect((await ui.find({ type: 'Text', text: /^Service$/ }))?.props.color, surface).toBe(PRESETS[preset].tableHeader)
+    const ui = await $.ui.mount({ ...draw('残り 42 件'), surface })
+    expect((await ui.find({ type: 'Text', text: /^42$/ }))?.props.color, surface).toBe(PRESETS[preset].number)
     await ui.unmount()
   }
 })
 
 test('desktopTheme same uses theme on the desktop too', { options: { theme: 'nord', desktopTheme: 'same' } }, async $ => {
-  const ui = await $.ui.mount({ ...draw(TABLE), surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /^Service$/ }))?.props.color).toBe(PRESETS.nord.tableHeader)
+  const ui = await $.ui.mount({ ...draw('残り 42 件'), surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^42$/ }))?.props.color).toBe(PRESETS.nord.number)
   await ui.unmount()
 })
 
