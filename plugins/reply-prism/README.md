@@ -23,6 +23,7 @@ Claude Code プラグイン（function hooks）。
 - Mermaid: 全角文字の幅と、`xychart-beta` の縦軸の目盛りが重ならない高さの選び方。横向き（`LR` `RL`）の flowchart が画面の幅に入らないときは、ソースのまま出す前に縦向き（`TD`）にして描き直す（`hooks/mermaid.tsx`）
 - ツール行: Read/Edit/Write のパスをボタンにし、開いた Bash の呼び出しは専用の形で描く（`hooks/render.tsx`・`hooks/register.tsx`）
 - 表の並べ替えボタン（⇅）のある見出しは、狭い列でも折り返さず末尾を切る
+- 配色: 端末（`theme`）とデスクトップアプリ（`desktopTheme`、既定 `github-light`）で別々に選べる
 
 ボタン・トースト・コマンドの返事・`/config` の項目名は日本語にした。ツール行の動詞（`Ran` `Read` `Edited`）と
 ターンの終わりの行は、Claude Code 自身の表示に合わせて英語のまま。
@@ -364,7 +365,8 @@ macOS 以外（文字だけ）では次の mrkdwn が入る:
 | 設定 | 値 | 既定 |
 |---|---|---|
 | `enabled` | `true` `false` | `true` |
-| `theme` | `catppuccin-mocha` `catppuccin-latte` `dracula` `nord` `tokyo-night` `gruvbox-dark` `gruvbox-light` `rose-pine` `rose-pine-dawn` `everforest` `github-dark` `github-light` `one-dark` `solarized-dark` `solarized-light` `mono` | `catppuccin-mocha` |
+| `theme`（端末） | `catppuccin-mocha` `catppuccin-latte` `dracula` `nord` `tokyo-night` `gruvbox-dark` `gruvbox-light` `rose-pine` `rose-pine-dawn` `everforest` `github-dark` `github-light` `one-dark` `solarized-dark` `solarized-light` `mono` | `catppuccin-mocha` |
+| `desktopTheme`（reply-prism） | `same`（`theme` と同じ）か、`theme` と同じ配色の名前。デスクトップアプリなど端末以外で描くときに使う。デスクトップは白地のことが多く、端末用の暗い背景向けの配色だと文字が淡くて読めないため別にしてある | `github-light` |
 | `tableStyle` | `rules` `grid` `minimal` | `rules` |
 | `headingStyle` | `banner` `bold` `underline` `uppercase` | `banner` |
 | `highlightNumbers` | `true` `false` | `true` |

@@ -27,7 +27,7 @@ import { helpText, rtlShowcaseText, showcaseText } from './help'
 import { PRESET_NAMES } from './presets'
 import { nextSort } from './table'
 import type { Style } from './theme'
-import { resolveStyle } from './theme'
+import { desktopThemeOf, resolveStyle } from './theme'
 import type { Terminal } from './rtl'
 import { TERMINALS, hasRtl } from './rtl'
 
@@ -290,10 +290,12 @@ export async function existingFiles($: EngineInterface, cache: ExistsCache, path
 
 export const register: Register = (on, options) => {
   if (options.enabled === false) return
-  const style = resolveStyle(options)
+  const resolved = resolveStyle(options)
+  // 端末以外（デスクトップアプリなど）は白地のことが多いので、配色は `desktopTheme` のものにする
+  const style: Style = { ...resolved, theme: desktopThemeOf(options) }
   const where = { cwd: '', home: '' }
   // パスのリンク（OSC 8）は端末でだけ描く。デスクトップなどは https 以外のリンクを描かないため。
-  const terminalStyle: Style = { ...style, fileLinks: makeLinker(style.editor, style.editorUrlTemplate, where), fileTargets: makeResolver(style.editor, style.editorUrlTemplate, where) }
+  const terminalStyle: Style = { ...resolved, fileLinks: makeLinker(style.editor, style.editorUrlTemplate, where), fileTargets: makeResolver(style.editor, style.editorUrlTemplate, where) }
   const styles = [style, terminalStyle] as const
   const styleFor = (surface: string): Style => (surface === 'terminal' ? terminalStyle : style)
   const clipboard: RichClipboard = {}

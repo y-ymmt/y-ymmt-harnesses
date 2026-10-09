@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "reply-prism",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "返事の表・コード・図・ツール行を色つきで描き、パスのリンク・表のコピー形式と並べ替え・長いブロックの折りたたみ・危ない語と ==…== の強調・返事まるごとコピー・ボタンの下地を足した Mod（prismantis の改変版）",
   "author": {
     "name": "y-ymmt"
@@ -29,6 +29,31 @@
       "description": "もとにする配色（MIT ライセンスの人気テーマから）。明るい背景向け: catppuccin-latte, gruvbox-light, rose-pine-dawn, github-light, solarized-light。mono は色を使わず太字と薄字だけ",
       "default": "catppuccin-mocha",
       "options": [
+        "catppuccin-mocha",
+        "catppuccin-latte",
+        "dracula",
+        "nord",
+        "tokyo-night",
+        "gruvbox-dark",
+        "gruvbox-light",
+        "rose-pine",
+        "rose-pine-dawn",
+        "everforest",
+        "github-dark",
+        "github-light",
+        "one-dark",
+        "solarized-dark",
+        "solarized-light",
+        "mono"
+      ]
+    },
+    "desktopTheme": {
+      "type": "string",
+      "title": "デスクトップアプリのテーマ",
+      "description": "デスクトップアプリ（端末以外）で描くときの配色。デスクトップは白地のことが多いので、既定は明るい背景向けの github-light。same にすると「テーマ」と同じ配色を使う",
+      "default": "github-light",
+      "options": [
+        "same",
         "catppuccin-mocha",
         "catppuccin-latte",
         "dracula",

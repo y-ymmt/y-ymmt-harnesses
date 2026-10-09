@@ -46,14 +46,17 @@ test('user colors override the theme, bad colors are ignored', async () => {
   expect(s.theme.link).toBe(PRESETS['catppuccin-mocha'].link)
 })
 
+/** 既定の配色: 端末は theme（catppuccin-mocha）、デスクトップは desktopTheme（github-light）。 */
+const presetFor = (surface: 'terminal' | 'desktop') => PRESETS[surface === 'terminal' ? 'catppuccin-mocha' : 'github-light']
+
 test('draws a colored table on terminal and desktop', async $ => {
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...draw(TABLE), surface })
     const header = await ui.find({ type: 'Text', text: /^Service$/ })
-    expect(header?.props.color).toBe(PRESETS['catppuccin-mocha'].tableHeader)
+    expect(header?.props.color).toBe(presetFor(surface).tableHeader)
     expect(header?.props.bold).toBe(true)
     const version = await ui.find({ type: 'Text', text: /^2\.14\.0$/ })
-    expect(version?.props.color).toBe(PRESETS['catppuccin-mocha'].number)
+    expect(version?.props.color).toBe(presetFor(surface).number)
     await ui.unmount()
   }
 })
@@ -161,7 +164,7 @@ test('tool rows read like Ran <command> with shell colors', async $ => {
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...toolRow('Bash', { command: 'gh pr view 12 --json state' }), surface })
     expect((await ui.find({ type: 'Text', text: /^Ran$/ }))?.props.bold).toBe(true)
-    expect((await ui.find({ type: 'Text', text: /^gh$/ }))?.props.color).toBe(PRESETS['catppuccin-mocha'].codeCommand)
+    expect((await ui.find({ type: 'Text', text: /^gh$/ }))?.props.color).toBe(presetFor(surface).codeCommand)
     await ui.unmount()
   }
 })
@@ -174,8 +177,22 @@ test('file tools show the path in the path color and failures say so', async $ =
   expect((await ui.find({ type: 'Text', text: /failed/ }))).toBeDefined()
   await ui.unmount()
   const desktop = await $.ui.mount({ ...toolRow('Edit', { file_path: '/tmp/app.ts' }, { isErrored: true }), surface: 'desktop' })
-  expect((await desktop.find({ type: 'Text', text: /^\/tmp\/app\.ts$/ }))?.props.color).toBe(PRESETS['catppuccin-mocha'].path)
+  expect((await desktop.find({ type: 'Text', text: /^\/tmp\/app\.ts$/ }))?.props.color).toBe(presetFor('desktop').path)
   await desktop.unmount()
+})
+
+test('desktopTheme picks the desktop palette; same follows theme; the terminal keeps theme', { options: { theme: 'tokyo-night', desktopTheme: 'solarized-light' } }, async $ => {
+  for (const [surface, preset] of [['terminal', 'tokyo-night'], ['desktop', 'solarized-light']] as const) {
+    const ui = await $.ui.mount({ ...draw(TABLE), surface })
+    expect((await ui.find({ type: 'Text', text: /^Service$/ }))?.props.color, surface).toBe(PRESETS[preset].tableHeader)
+    await ui.unmount()
+  }
+})
+
+test('desktopTheme same uses theme on the desktop too', { options: { theme: 'nord', desktopTheme: 'same' } }, async $ => {
+  const ui = await $.ui.mount({ ...draw(TABLE), surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^Service$/ }))?.props.color).toBe(PRESETS.nord.tableHeader)
+  await ui.unmount()
 })
 
 test('toolRows off leaves tool rows to the engine', { options: { toolRows: false } }, async ($, on) => {

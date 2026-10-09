@@ -96,11 +96,31 @@ export const isColor = (value: unknown): value is string => typeof value === 'st
 const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
   allowed.includes(value as T) ? (value as T) : fallback
 
-export const resolveStyle = (options: PluginOptions): Style => {
-  const base: Theme = (PRESETS as Record<string, Theme>)[String(options.theme)] ?? PRESETS['catppuccin-mocha']
+/** 配色の名前と、色ごとの上書き（`<token>Color`）から、描くときの配色を作る。知らない名前は catppuccin-mocha。 */
+const themeOf = (name: unknown, options: PluginOptions): Theme => {
+  const base: Theme = (PRESETS as Record<string, Theme>)[String(name)] ?? PRESETS['catppuccin-mocha']
   const fromFields = Object.fromEntries(
     TOKENS.filter(k => isColor(options[`${k}Color`])).map(k => [k, String(options[`${k}Color`]).trim()]),
   )
+  return { ...base, ...fromFields }
+}
+
+/** reply-prism: デスクトップアプリで描くときの配色の名前（`desktopTheme`）。既定は明るい背景向けの github-light。`same` なら `theme` と同じ。 */
+export const DEFAULT_DESKTOP_THEME = 'github-light'
+const desktopThemeName = (options: PluginOptions): unknown =>
+  options.desktopTheme === 'same'
+    ? options.theme
+    : typeof options.desktopTheme === 'string' && options.desktopTheme in PRESETS
+      ? options.desktopTheme
+      : DEFAULT_DESKTOP_THEME
+
+/**
+ * reply-prism: デスクトップアプリ（端末以外）で描くときの配色。デスクトップは白地のことが多く、
+ * 端末用の暗い背景向けの配色（tokyo-night など）だと文字が淡くて読めないため、別に選べるようにする。
+ */
+export const desktopThemeOf = (options: PluginOptions): Theme => themeOf(desktopThemeName(options), options)
+
+export const resolveStyle = (options: PluginOptions): Style => {
 
   const rtl = pick(options.rtl, ['auto', 'off', ...(Object.keys(TERMINALS) as Terminal[])], 'auto')
 
@@ -125,7 +145,7 @@ export const resolveStyle = (options: PluginOptions): Style => {
     tableCopyFormats: copyFormats(options.tableCopyFormats),
     replyCopy: options.replyCopy !== false,
     replyCopyFormats: replyFormats(options.replyCopyFormats),
-    theme: { ...base, ...fromFields },
+    theme: themeOf(options.theme, options),
     headingStyle: pick(options.headingStyle, ['bold', 'underline', 'uppercase', 'banner'] as const, 'banner'),
     tableStyle: pick(options.tableStyle, ['rules', 'grid', 'minimal'] as const, 'rules'),
     highlightNumbers: options.highlightNumbers !== false,
