@@ -9,7 +9,7 @@ import { buildDanger, dangerRanges, parseWords } from '../hooks/danger'
 import { showcaseText } from '../hooks/help'
 import { DANGER_HINT, findMarks, markLines, stripMarks, stripTable } from '../hooks/mark'
 import { parse } from '../hooks/markdown'
-import { editorUrl, isPathLike, openKey, openLabel, parseOpenKey, resolvePath, splitTarget } from '../hooks/paths'
+import { editorUrl, isPathLike, openKey, openLabel, parseOpenKey, parseUrlKey, resolvePath, splitTarget, urlKey, urlLabel } from '../hooks/paths'
 import { columnKind, nextSort, parseDate, parseNumber, sortOrder, toMarkdown, toSlack, toTsv } from '../hooks/table'
 import { mermaidText } from '../hooks/mermaid'
 import { width } from '../hooks/width'
@@ -652,6 +652,55 @@ describe('8. 押してエディタで開くボタン', () => {
     expect(parseOpenKey('copy0')).toBeUndefined()
     expect(openLabel({ abs: '/w/src/Foo.java', line: 12 })).toBe('Foo.java:12')
     expect(openLabel({ abs: '/w/.zshrc' })).toBe('.zshrc')
+  })
+
+  test('返事の http(s) のリンクも「開く:」の行のボタンになり、押すとブラウザで開く。ボタンと本文のリンクに同じ番号を付ける', async ($, on) => {
+    const runs = captureRuns(on)
+    await start($, on)
+    const text = [
+      '| 版 | ファイル |',
+      '|---|---|',
+      '| 1.10 | [仕様書](https://example.com/files/a/view) |',
+      '| 1.09 | [仕様書](https://example.com/files/b/view) |',
+      '',
+      '詳しくは https://example.com/docs/guide を見て。[同じもの](https://example.com/files/a/view) と ftp://example.com/x も。',
+    ].join('\n')
+    const ui = await $.ui.mount(reply(text))
+    const urls = (await ui.findAll({ type: 'Button' })).filter(b => String(b.key).startsWith('url:'))
+    expect(urls.map(b => [b.key, b.props.label])).toEqual([
+      ['url:https://example.com/files/a/view', '[1] 仕様書'],
+      ['url:https://example.com/files/b/view', '[2] 仕様書'],
+      ['url:https://example.com/docs/guide', '[3] example.com/.../guide'],
+    ])
+    // 本文のリンクの後ろにも同じ番号（同じ URL は同じ番号）
+    expect((await ui.findAll({ type: 'Text', text: /^ \[1\]$/ })).length, '表の 1 行目と文中の「同じもの」').toBe(2)
+    expect(await ui.findAll({ type: 'Text', text: /^ \[2\]$/ })).toHaveLength(1)
+    expect(await ui.findAll({ type: 'Text', text: /^ \[3\]$/ })).toHaveLength(1)
+    expect(await ui.find({ type: 'Text', text: /^開く:$/ })).toBeDefined()
+    // 文中の URL の文字はそのまま残す
+    expect(await ui.find({ type: 'Text', text: / \(https:\/\/example\.com\/files\/a\/view\)/ })).toBeDefined()
+    await ui.press({ key: 'url:https://example.com/files/b/view' })
+    expect(runs).toEqual([['open', 'https://example.com/files/b/view']])
+    await ui.unmount()
+  })
+
+  test('上限を超えて「開く:」に出せなかった URL には番号を付けない', { options: { openRowMax: 2 } }, async ($, on) => {
+    await start($, on)
+    const ui = await $.ui.mount(reply('[a](https://example.com/a) [b](https://example.com/b) [c](https://example.com/c)'))
+    const urls = (await ui.findAll({ type: 'Button' })).filter(b => String(b.key).startsWith('url:'))
+    expect(urls.map(b => b.props.label)).toEqual(['[1] a', '[2] b'])
+    expect(await ui.find({ type: 'Text', text: /^ほか 1 件$/ })).toBeDefined()
+    expect(await ui.findAll({ type: 'Text', text: /^ \[3\]$/ })).toHaveLength(0)
+    await ui.unmount()
+  })
+
+  test('URL のボタンの key は http(s) だけを戻す', () => {
+    expect(parseUrlKey(urlKey('https://example.com/a?b=1#c'))).toBe('https://example.com/a?b=1#c')
+    expect(parseUrlKey('url:file:///etc/passwd')).toBeUndefined()
+    expect(parseUrlKey('url:javascript:alert(1)')).toBeUndefined()
+    expect(parseUrlKey('open:0:0:/w/a.ts')).toBeUndefined()
+    expect(urlLabel('https://example.com')).toBe('example.com')
+    expect(urlLabel('https://example.com/a')).toBe('example.com/a')
   })
 
   test('Read・Edit のツール行のパスは押すと開くボタンになる（リンクにはしない）', async ($, on) => {

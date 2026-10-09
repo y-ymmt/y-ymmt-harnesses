@@ -159,5 +159,30 @@ export const parseOpenKey = (key: string): OpenTarget | undefined => {
   return { abs: m[3]!, ...(line ? { line } : {}), ...(col ? { col } : {}) }
 }
 
+/** ブラウザで開くボタンの key の頭。後ろは URL そのもの。 */
+export const URL_PREFIX = 'url:'
+
+/** URL → ボタンの key。 */
+export const urlKey = (href: string): string => `${URL_PREFIX}${href}`
+
+/** ボタンの key → 開く URL。URL のボタンでない、または http(s) でなければ undefined（返事の文から来るので、ほかの形式は開かない）。 */
+export const parseUrlKey = (key: string): string | undefined => {
+  if (!key.startsWith(URL_PREFIX)) return undefined
+  const href = key.slice(URL_PREFIX.length)
+  return isWebUrl(href) ? href : undefined
+}
+
+/** ブラウザで開いてよい URL（http / https）。 */
+export const isWebUrl = (href: string): boolean => /^https?:\/\/[^\s]+$/i.test(href)
+
+/** むき出しの URL のボタンに出す短い名前: `drive.google.com/.../view`（`…` は幅が曖昧な文字なので使わない）。 */
+export const urlLabel = (href: string): string => {
+  const m = /^https?:\/\/([^/?#]+)([^?#]*)/i.exec(href)
+  if (!m) return href
+  const parts = (m[2] ?? '').split('/').filter(Boolean)
+  if (parts.length === 0) return m[1]!
+  return parts.length === 1 ? `${m[1]}/${parts[0]}` : `${m[1]}/.../${parts[parts.length - 1]}`
+}
+
 /** 返事の最後の「開く」の行に出す名前: ファイル名、行番号があれば `name:12`。 */
 export const openLabel = (t: OpenTarget): string => `${t.abs.split('/').pop() || t.abs}${t.line ? `:${t.line}` : ''}`

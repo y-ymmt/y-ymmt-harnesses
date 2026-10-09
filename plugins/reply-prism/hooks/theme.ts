@@ -44,6 +44,8 @@ export type Style = {
   /** 返事の最後に「開く:」とパスのボタンの行を足すか。足すときの数の上限。 */
   openRow: boolean
   openRowMax: number
+  /** 「開く:」の行に URL のボタンを出したリンクの番号（URL → 番号）。本文のリンクの後ろに `[番号]` を付けるのに使う。register.tsx が返事ごとに入れる。 */
+  linkNumbers?: ReadonlyMap<string, number>
   /** 危ない語。`dangerHighlight` が false なら null。 */
   danger: DangerMatchers | null
   dangerColor?: string

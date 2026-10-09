@@ -18,9 +18,9 @@ import { DANGER_HINT } from './mark'
 import { parse } from './markdown'
 import { boxArt, fittedMermaid } from './mermaid'
 import type { OpenTarget } from './paths'
-import { editorUrl, makeLinker, makeResolver, parseOpenKey } from './paths'
+import { editorUrl, makeLinker, makeResolver, parseOpenKey, parseUrlKey } from './paths'
 import type { Controls, CopyButton, Drawn } from './render'
-import { COPY, openTargets, remember, renderBlocks, renderExpandedShell, renderOpenRow, renderReplyCopyRow, renderToolGroup, renderToolRow, renderTurnDuration } from './render'
+import { COPY, openButtons, openTargets, remember, renderBlocks, renderExpandedShell, renderOpenRow, renderReplyCopyRow, renderToolGroup, renderToolRow, renderTurnDuration } from './render'
 import type { TranscriptRow } from './reply'
 import { findReply } from './reply'
 import { helpText, rtlShowcaseText, showcaseText } from './help'
@@ -97,12 +97,10 @@ export const makeExpandedCalls = (limit = EXPANDED_LIMIT) => {
 }
 
 /**
- * ファイルをエディタで開く。URL を macOS は open、それ以外は xdg-open に渡す。開けなければトーストで知らせる。
+ * URL を macOS は open、それ以外は xdg-open に渡して開く。開けなければトーストで知らせる。
  * 全画面表示の端末ではリンク（OSC 8）のクリックが Mod に届かず開かないため、ボタンからこれを呼ぶ。
  */
-const openInEditor = async ($: EngineInterface, style: Style, target: OpenTarget): Promise<void> => {
-  const url = editorUrl(style.editor, style.editorUrlTemplate, target.abs, target.line, target.col)
-  if (url === undefined) return
+const openUrl = async ($: EngineInterface, url: string, what = 'リンク'): Promise<void> => {
   let lastError = ''
   for (const opener of ['open', 'xdg-open']) {
     try {
@@ -118,7 +116,13 @@ const openInEditor = async ($: EngineInterface, style: Style, target: OpenTarget
     $.ui.toast(`開けませんでした: ${lastError}`.trim(), { timeoutMs: 5_000 })
     return
   }
-  $.ui.toast('ファイルを開くコマンド（open / xdg-open）が見つかりません', { timeoutMs: 5_000 })
+  $.ui.toast(`${what}を開くコマンド（open / xdg-open）が見つかりません`, { timeoutMs: 5_000 })
+}
+
+/** ファイルをエディタで開く（エディタの URL を作って openUrl に渡す）。 */
+const openInEditor = async ($: EngineInterface, style: Style, target: OpenTarget): Promise<void> => {
+  const url = editorUrl(style.editor, style.editorUrlTemplate, target.abs, target.line, target.col)
+  if (url !== undefined) await openUrl($, url, 'ファイル')
 }
 
 // ---- 書式付きのコピー（macOS） ----
@@ -355,11 +359,14 @@ export const register: Register = (on, options) => {
     return { text: result.deny ? `テーマを切り替えられませんでした: ${result.deny}` : `テーマを ${name} にしました。` }
   })
 
-  // 押して開くボタン（ツール行のパスと、返事の最後の「開く:」の行）。開く対象は key から戻す。
+  // 押して開くボタン（ツール行のパスと、返事の最後の「開く:」の行のファイル・URL）。開く対象は key から戻す。
   // 他のボタン（コピー・開閉・並べ替え）は onPress で動くので、そのまま下へ流す。
   on('ui.press', async ($, e, next) => {
-    const target = e.plugin === $.plugin.name ? parseOpenKey(e.element) : undefined
+    const isMine = e.plugin === $.plugin.name
+    const target = isMine ? parseOpenKey(e.element) : undefined
+    const url = isMine ? parseUrlKey(e.element) : undefined
     if (target) await openInEditor($, style, target)
+    else if (url) await openUrl($, url)
     return next(e)
   })
 
@@ -390,11 +397,14 @@ export const register: Register = (on, options) => {
     if (blocks.length === 0) return next(e)
     const el = $.ui.resolve(e)
     const { Box, Text } = el
-    const s = styleFor(e.surface)
+    const base = styleFor(e.surface)
     const columns = Math.max(20, (e.viewport?.columns ?? 100) - 4)
     const controls = await readControls($, e, blocks)
-    const whole = await replyTexts($, s, transcriptCache, e.props.text)
-    const known = await existingFiles($, existsCache, openTargets(s, blocks).map(t => t.abs))
+    const whole = await replyTexts($, base, transcriptCache, e.props.text)
+    const known = await existingFiles($, existsCache, openTargets(base, blocks).map(t => t.abs))
+    // 「開く:」の行のボタンを先に決め、URL のボタンの番号を本文のリンクにも付ける
+    const buttons = openButtons(base, blocks, abs => known.get(abs) === true)
+    const s = buttons.linkNumbers.size > 0 ? { ...base, linkNumbers: buttons.linkNumbers } : base
     return (
       <Box flexDirection="row">
         <Box width={2} flexShrink={0}>
@@ -402,7 +412,7 @@ export const register: Register = (on, options) => {
         </Box>
         <Box flexDirection="column" rowGap={1} flexGrow={1}>
           {drawMarkdown($, el, s, blocks, columns, controls)}
-          {renderOpenRow(el, s, blocks, abs => known.get(abs) === true)}
+          {renderOpenRow(el, s, buttons)}
           {whole ? renderReplyCopyRow(el, s.replyCopyFormats, whole, makeCopy($, el, { ...s, copyButtons: true }, clipboard)) : null}
         </Box>
       </Box>

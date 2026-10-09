@@ -9,7 +9,7 @@ import type { Range } from './danger'
 import { dangerRanges, splitByRanges } from './danger'
 import { stripLine, stripMarks, stripTable } from './mark'
 import type { OpenTarget } from './paths'
-import { isPathLike, openKey, openLabel } from './paths'
+import { isPathLike, isWebUrl, openKey, openLabel, urlKey, urlLabel } from './paths'
 import type { ReplyFormat } from './reply'
 import { REPLY_DONE, REPLY_DONE_RICH, REPLY_LABEL, convertReply, convertReplySlackRich } from './reply'
 import { commentTail, commentVisual, flow, hasRtl } from './rtl'
@@ -61,19 +61,12 @@ const linked = (el: ElementTable, style: Style, target: string, child: RenderEle
   return <Link key={key} href={href}>{child}</Link>
 }
 
-/** 返事の中の、リンクにしているのと同じファイルパス（文中・表のセル・パスだけのインラインコード）。同じパス＋行は 1 つに、出てきた順。 */
-export const openTargets = (style: Style, blocks: readonly Block[]): OpenTarget[] => {
-  const resolve = style.fileTargets
-  if (!resolve) return []
-  const found = new Map<string, OpenTarget>()
+/** 返事の文中・見出し・引用・リスト・表のセルの、インラインの要素をすべて順に訪ねる（強調などの中も）。 */
+const eachInline = (blocks: readonly Block[], visit: (n: Inline) => void): void => {
   const walk = (nodes: readonly Inline[]): void => {
     for (const n of nodes) {
+      visit(n)
       if ('children' in n) walk(n.children)
-      else if (n.kind === 'path' || (n.kind === 'code' && isPathLike(n.text))) {
-        const t = resolve(n.text)
-        const id = t && `${t.line ?? 0}:${t.abs}`
-        if (t && id && !found.has(id)) found.set(id, t)
-      }
     }
   }
   for (const block of blocks) {
@@ -92,28 +85,76 @@ export const openTargets = (style: Style, blocks: readonly Block[]): OpenTarget[
         break
     }
   }
+}
+
+/** 返事の中の、リンクにしているのと同じファイルパス（文中・表のセル・パスだけのインラインコード）。同じパス＋行は 1 つに、出てきた順。 */
+export const openTargets = (style: Style, blocks: readonly Block[]): OpenTarget[] => {
+  const resolve = style.fileTargets
+  if (!resolve) return []
+  const found = new Map<string, OpenTarget>()
+  eachInline(blocks, n => {
+    if (n.kind === 'path' || (n.kind === 'code' && isPathLike(n.text))) {
+      const t = resolve(n.text)
+      const id = t && `${t.line ?? 0}:${t.abs}`
+      if (t && id && !found.has(id)) found.set(id, t)
+    }
+  })
   return [...found.values()]
 }
 
-/** 返事の最後に足す「開く:」の行。押すとエディタで開くボタンを並べる（全画面表示の端末ではリンクのクリックが届かないため）。 */
-export const renderOpenRow = (
-  el: ElementTable,
-  style: Style,
-  blocks: readonly Block[],
-  exists: (abs: string) => boolean = () => true,
-): RenderElement | null => {
-  if (!style.openRow) return null
+/** 「開く:」の行に並べる URL のボタン。 */
+export type UrlTarget = { href: string; label: string }
+
+/**
+ * reply-prism: 返事の中の http(s) のリンク（`[文字](URL)` とむき出しの URL）。同じ URL は 1 つに、出てきた順。
+ * ボタンの名前はリンクの文字（むき出しの URL は `urlLabel` で短くしたもの）。
+ */
+export const urlTargets = (blocks: readonly Block[]): UrlTarget[] => {
+  const found = new Map<string, string>()
+  eachInline(blocks, n => {
+    if (n.kind === 'link' && isWebUrl(n.href) && !found.has(n.href)) found.set(n.href, n.text === n.href ? urlLabel(n.href) : n.text.trim() || urlLabel(n.href))
+  })
+  return [...found].map(([href, label]) => ({ href, label }))
+}
+
+/** 「開く:」の行のボタン。並べるもの（上限まで）、上限を超えた数、ボタンを出したリンクの番号。 */
+export type OpenButtons = { shown: { key: string; label: string }[]; rest: number; linkNumbers: Map<string, number> }
+
+/**
+ * 「開く:」の行に並べるボタンを決める。ファイルが先、URL が後で、合わせて `openRowMax` まで。
+ *
+ * URL のボタンには出てきた順に `[1]` `[2]` … の番号を付け、本文のリンクの後ろにも同じ番号を出す
+ * （同じ名前のリンクがいくつもあるとき、どのボタンがどのリンクか分かるように）。同じ URL は同じ番号。
+ * 上限で出せなかった URL には番号を付けない。
+ */
+export const openButtons = (style: Style, blocks: readonly Block[], exists: (abs: string) => boolean = () => true): OpenButtons => {
+  const linkNumbers = new Map<string, number>()
+  if (!style.openRow) return { shown: [], rest: 0, linkNumbers }
   // 実在しないファイル（作業ディレクトリの外にあるファイルを相対パスで書いた、など）は出さない。押すとエディタが「存在しない」と言うだけなので。
-  const targets = openTargets(style, blocks).filter(t => exists(t.abs))
-  if (targets.length === 0) return null
+  const files = openTargets(style, blocks).filter(t => exists(t.abs)).map(t => ({ key: openKey(t), label: openLabel(t) }))
+  // URL も端末でだけ（パスを開けるのは端末の描き方だけで、デスクトップはリンクのクリックで開ける）。
+  const urls = style.fileTargets ? urlTargets(blocks) : []
+  const room = Math.max(0, style.openRowMax - files.length)
+  const shownUrls = urls.slice(0, room).map((t, i) => {
+    linkNumbers.set(t.href, i + 1)
+    return { key: urlKey(t.href), label: `[${i + 1}] ${t.label}` }
+  })
+  const shown = [...files.slice(0, style.openRowMax), ...shownUrls]
+  return { shown, rest: files.length + urls.length - shown.length, linkNumbers }
+}
+
+/**
+ * 返事の最後に足す「開く:」の行。ファイルパスはエディタで、URL はブラウザで開くボタンを並べる
+ * （全画面表示の端末ではリンクのクリックが届かないため）。並べるものは `openButtons` で決める。
+ */
+export const renderOpenRow = (el: ElementTable, style: Style, buttons: OpenButtons): RenderElement | null => {
+  if (buttons.shown.length === 0) return null
   const { Box, Text, Button } = el
-  const shown = targets.slice(0, style.openRowMax)
-  const rest = targets.length - shown.length
   return (
     <Box key="open" flexDirection="row" flexWrap="wrap" columnGap={2}>
       <Text dimColor>開く:</Text>
-      {shown.map(t => chip(el, style, openKey(t), <Button key={openKey(t)} plain label={openLabel(t)} onPress={() => undefined} />))}
-      {rest > 0 ? <Text dimColor>{`ほか ${rest} 件`}</Text> : null}
+      {buttons.shown.map(b => chip(el, style, b.key, <Button key={b.key} plain label={b.label} onPress={() => undefined} />))}
+      {buttons.rest > 0 ? <Text dimColor>{`ほか ${buttons.rest} 件`}</Text> : null}
     </Box>
   )
 }
@@ -179,10 +220,14 @@ const renderInline = (el: ElementTable, style: Style, nodes: Inline[], keyBase: 
         const code = paint(el, style, n.text, key, { color: t.inlineCode }, 'prose')
         return isPathLike(n.text) ? linked(el, style, n.text, code, `${key}.l`) : code
       }
-      case 'link':
+      case 'link': {
+        // 「開く:」の行に同じ番号のボタンがあるリンクには、後ろに `[番号]` を付ける
+        const number = style.linkNumbers?.get(n.href)
+        const tag = number === undefined ? null : <Text dimColor>{` [${number}]`}</Text>
         return n.text === n.href
-          ? <Text key={key} color={t.link} underline>{n.href}</Text>
-          : <Text key={key}><Text color={t.link} underline>{n.text}</Text><Text dimColor> ({n.href})</Text></Text>
+          ? <Text key={key}><Text color={t.link} underline>{n.href}</Text>{tag}</Text>
+          : <Text key={key}><Text color={t.link} underline>{n.text}</Text>{tag}<Text dimColor> ({n.href})</Text></Text>
+      }
       case 'number':
         return <Text key={key} color={t.number}>{n.text}</Text>
       case 'path':
@@ -341,8 +386,18 @@ export const columnWidths = (natural: readonly number[], available: number, gap:
   })
 }
 
-const displayText = (inline: Inline[]): string =>
-  inline.map(n => (n.kind === 'link' && n.text !== n.href ? `${n.text} (${n.href})` : 'children' in n ? displayText(n.children) : n.text)).join('')
+/** 描いたときの文字（表の列の幅を測るのに使う）。リンクは `文字 [番号] (URL)` の形になる。 */
+const displayText = (inline: Inline[], numbers?: ReadonlyMap<string, number>): string =>
+  inline
+    .map(n => {
+      if (n.kind === 'link') {
+        const number = numbers?.get(n.href)
+        const tag = number === undefined ? '' : ` [${number}]`
+        return n.text !== n.href ? `${n.text}${tag} (${n.href})` : `${n.text}${tag}`
+      }
+      return 'children' in n ? displayText(n.children, numbers) : n.text
+    })
+    .join('')
 
 const isRtlTable = (style: Style, block: Extract<Block, { kind: 'table' }>): boolean => {
   const cells = [...block.header, ...block.rows.flat()].filter(cell => displayText(cell).trim() !== '')
@@ -400,7 +455,7 @@ const renderTable = (el: ElementTable, style: Style, block: Extract<Block, { kin
   const gap = style.tableStyle === 'grid' ? 3 : 2
   const isSortable = controls !== undefined && style.tableSort && block.rows.length >= 2
   const natural = block.header.map((h, c) =>
-    Math.max(width(displayText(h)) + (isSortable ? 2 : 0), ...block.rows.map(r => width(displayText(r[c] ?? [])))),
+    Math.max(width(displayText(h, style.linkNumbers)) + (isSortable ? 2 : 0), ...block.rows.map(r => width(displayText(r[c] ?? [], style.linkNumbers)))),
   )
   const widths = columnWidths(natural, columns, gap)
   const order = natural.map((_, c) => c)
