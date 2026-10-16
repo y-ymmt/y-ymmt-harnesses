@@ -21,7 +21,8 @@ Claude Code プラグイン（function hooks）。
 
 - ボタンの下地（`hooks/chip.tsx`）: ホバーしていないときも背景色を敷く。高さのある行（折り返した見出しなど）でも伸びない
 - Mermaid: 全角文字の幅と、`xychart-beta` の縦軸の目盛りが重ならない高さの選び方。横向き（`LR` `RL`）の flowchart が画面の幅に入らないときは、ソースのまま出す前に縦向き（`TD`）にして描き直す（`hooks/mermaid.tsx`）
-- ツール行: Read/Edit/Write のパスをボタンにし、開いた Bash の呼び出しは専用の形で描く（`hooks/render.tsx`・`hooks/register.tsx`）
+- ツール行: Read/Edit/Write のパスをボタンにし、開いた Bash の呼び出しは専用の形で描く（`hooks/render.tsx`・`hooks/register.tsx`）。
+  デスクトップアプリでは描き直さず標準の行のままにする（標準の行は押すとコマンドの全文と出力が開くが、描き直した行は押せないため）
 - 表の並べ替えボタン（⇅）のある見出しは、狭い列でも折り返さず末尾を切る
 - 配色: 端末（`theme`）とデスクトップアプリ（`desktopTheme`、既定 `github-light`）で別々に選べる
 - デスクトップアプリなど端末以外では、表を Claude Code 標準の Markdown で描く（文字ごとに幅の違うフォントだと、文字数で組んだ列と罫線がずれ、表が横にはみ出すため）。
@@ -380,7 +381,7 @@ macOS 以外（文字だけ）では次の mrkdwn が入る:
 | `headingStyle` | `banner` `bold` `underline` `uppercase` | `banner` |
 | `highlightNumbers` | `true` `false` | `true` |
 | `highlightPaths` | `true` `false`（`false` にすると文中のパスはリンクにも `開く:` の行にも出ない。インラインコードのパスとツール行は残る） | `true` |
-| `toolRows` | `true` `false` | `true` |
+| `toolRows` | `true` `false`（デスクトップアプリでは `true` でも描き直さない） | `true` |
 | `copyButtons` | `true` `false` | `true` |
 | `diagramHints` | `true` `false` | `true` |
 | `rtl` | `auto`、端末名（`warp` `kitty` `apple-terminal` `iterm` `ghostty` `wezterm` `vscode` `alacritty` `windows-terminal` `gnome` `konsole`）、`off` | `auto` |
@@ -418,8 +419,8 @@ macOS 以外（文字だけ）では次の mrkdwn が入る:
 | Apple の「ターミナル」など OSC 8 を描けない端末 | 未確認 | リンクの後ろに URL が薄字で付く（上の WARNING）。テーマの色は 24bit 色で、出せない端末では近い色になるはず（Claude Code 任せ） |
 | tmux の中 | 未確認 | リンクが外の端末まで届くかは tmux の設定次第 |
 | 罫線を 2 桁で描く設定の端末 | 未対応 | 表・コードの枠・Mermaid の図の桁がずれる（推測）。罫線の無いフォントには `mermaidAscii` がある |
-| デスクトップアプリ（Code タブ） | 一部確認 | macOS で表・箇条書き・見出し・コピーのボタンが描かれ、0.4.1 で箇条書き・引用の印が 1 行目にそろい、0.4.2 で段落・引用が右端まで折り返すことを見た。0.4.3 の `⏺`・`●` の位置は実機では見ていない。太字・インラインコード・パスなど色の付いた部分は、空白の無い 24 字以下だと今も 1 語として折り返さない（デスクトップの決まり）。以下は VS Code 拡張・モバイルと同じ |
-| VS Code 拡張・モバイル | 未確認 | 返事・ツール行・コマンドの出力は表示面を問わず描き直し、リンクと開くボタンだけ出さない（本家と同じ）。ターンの終わりの行は terminal でしか描かれない。テストは terminal と desktop の両方で描き、desktop でリンクとボタンが出ないことを見ている。VS Code 拡張・モバイルはテストも無い |
+| デスクトップアプリ（Code タブ） | 一部確認 | macOS で表・箇条書き・見出し・コピーのボタンが描かれ、0.4.1 で箇条書き・引用の印が 1 行目にそろい、0.4.2 で段落・引用が右端まで折り返すことを見た。0.4.3 で返事の `⏺` が 1 行目に出ることを見た。0.4.4 からツール行は描き直さず、標準の行を押すとコマンドの全文と出力・ファイルの中身が開くことを見た。太字・インラインコード・パスなど色の付いた部分は、空白の無い 24 字以下だと今も 1 語として折り返さない（デスクトップの決まり）。以下は VS Code 拡張・モバイルと同じ |
+| VS Code 拡張・モバイル | 未確認 | 返事・ツール行・コマンドの出力は描き直し（デスクトップアプリのツール行だけは描き直さない）、リンクと開くボタンだけ出さない（本家と同じ）。ターンの終わりの行は terminal でしか描かれない。テストは terminal と desktop の両方で描き、desktop でリンクとボタンが出ないことを見ている。VS Code 拡張・モバイルはテストも無い |
 | `claude -p`・SDK | 未対応 | 描かない（Claude Code が描かないため）。`diagramHints` `dangerHints` の注記も付けない（送り元が端末の入力欄か Remote Control のときだけ付ける。コードでそうしている） |
 
 ### OS と開き方
@@ -492,7 +493,7 @@ LICENSE THIRD_PARTY_NOTICES.md  本家の MIT ライセンスと同梱物の表�
 ## テスト・確認
 
 ```sh
-claude plugin test plugins/reply-prism                 # 全 7 ファイル・246 件（本家のテストと、足した機能のテスト）
+claude plugin test plugins/reply-prism                 # 全 7 ファイル・247 件（本家のテストと、足した機能のテスト）
 claude plugin validate plugins/reply-prism --strict
 ```
 

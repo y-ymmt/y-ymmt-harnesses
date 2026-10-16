@@ -216,12 +216,30 @@ const toolRow = (tool: string, input: unknown, extra: Partial<{ isRunning: boole
 })
 
 test('tool rows read like Ran <command> with shell colors', async $ => {
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...toolRow('Bash', { command: 'gh pr view 12 --json state' }), surface })
-    expect((await ui.find({ type: 'Text', text: /^Ran$/ }))?.props.bold).toBe(true)
-    expect((await ui.find({ type: 'Text', text: /^gh$/ }))?.props.color).toBe(presetFor(surface).codeCommand)
-    await ui.unmount()
-  }
+  const ui = await $.ui.mount({ ...toolRow('Bash', { command: 'gh pr view 12 --json state' }), surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^Ran$/ }))?.props.bold).toBe(true)
+  expect((await ui.find({ type: 'Text', text: /^gh$/ }))?.props.color).toBe(presetFor('terminal').codeCommand)
+  await ui.unmount()
+})
+
+test('on the desktop tool rows and groups are left to the engine, so a row still opens on press', async ($, on) => {
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
+  const row = await $.ui.mount({ ...toolRow('Bash', { command: 'ls' }), surface: 'desktop' })
+  expect(await row.find({ type: 'Text', text: /^engine$/ })).toBeDefined()
+  expect(await row.find({ type: 'Text', text: /^Ran$/ })).toBeUndefined()
+  await row.unmount()
+  const group = await $.ui.mount({
+    plugin: 'reply-prism',
+    component: 'ToolGroup' as const,
+    props: { calls: [toolRow('Bash', { command: 'ls' }).props, { ...toolRow('Read', { file_path: '/tmp/x' }).props, tool_use_id: 't2' }], isActive: false, isExpanded: false },
+    viewport: { columns: 120, rows: 40 },
+    surface: 'desktop',
+  })
+  expect(await group.find({ type: 'Text', text: /^engine$/ })).toBeDefined()
+  await group.unmount()
 })
 
 test('file tools show the path in the path color and failures say so', async $ => {
@@ -232,9 +250,6 @@ test('file tools show the path in the path color and failures say so', async $ =
   expect((await ui.find({ type: 'Text', text: /^\/tmp\/app\.ts$/ }))?.props.color).toBe(presetFor('terminal').path)
   expect((await ui.find({ type: 'Text', text: /failed/ }))).toBeDefined()
   await ui.unmount()
-  const desktop = await $.ui.mount({ ...toolRow('Edit', { file_path: '/tmp/app.ts' }, { isErrored: true }), surface: 'desktop' })
-  expect((await desktop.find({ type: 'Text', text: /^\/tmp\/app\.ts$/ }))?.props.color).toBe(presetFor('desktop').path)
-  await desktop.unmount()
 })
 
 test('a list item and a quote keep their mark on the first line of a wrapped item (terminal and desktop)', async $ => {

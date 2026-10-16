@@ -722,15 +722,12 @@ describe('8. 押してエディタで開くボタン', () => {
     await edit.unmount()
   })
 
-  test('ファイル以外のツール行・デスクトップ・editor: off ではボタンにしない', async ($, on) => {
+  // デスクトップのツール行は描き直さない（render.test.tsx）ので、ここでは端末だけ見る
+  test('ファイル以外のツール行・editor: off ではボタンにしない', async ($, on) => {
     await start($, on)
     const grep = await $.ui.mount(toolUse('Grep', { pattern: 'TODO', path: '/work/example-app/src' }))
     expect(await opens(grep)).toHaveLength(0)
     await grep.unmount()
-    const desktop = await $.ui.mount(toolUse('Read', { file_path: '/tmp/app.ts' }, 'desktop'))
-    expect(await opens(desktop)).toHaveLength(0)
-    expect((await desktop.find({ type: 'Text', text: /^\/tmp\/app\.ts$/ }))).toBeDefined()
-    await desktop.unmount()
   })
 
   test('editor: off ならツール行も返事もボタンにしない', { options: { editor: 'off' } }, async ($, on) => {

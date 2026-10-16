@@ -329,7 +329,9 @@ export const register: Register = (on, options) => {
   }
 
   if (options.toolRows !== false) {
+    // デスクトップではツールの行を描き直さない。標準の行は押すとコマンドの全文と出力が開くが、描き直した行は押せないため。
     on('ui.render', { component: 'ToolGroup' }, ($, e, next) => {
+      if (e.surface === 'desktop') return next(e)
       if (e.props.isExpanded) {
         for (const call of e.props.calls) if (call.tool_use_id) expandedCalls.add(call.tool_use_id)
         return next(e)
@@ -337,6 +339,7 @@ export const register: Register = (on, options) => {
       return renderToolGroup($.ui.resolve(e), styleFor(e.surface), e.props.calls, e.props.isActive)
     })
     on('ui.render', { component: 'ToolUse' }, ($, e, next) => {
+      if (e.surface === 'desktop') return next(e)
       if (!expandedCalls.has(e.props.tool_use_id)) return renderToolRow($.ui.resolve(e), styleFor(e.surface), e.props)
       return e.props.tool === 'Bash' || e.props.tool === 'PowerShell' ? renderExpandedShell($.ui.resolve(e), styleFor(e.surface), e.props) : next(e)
     })
