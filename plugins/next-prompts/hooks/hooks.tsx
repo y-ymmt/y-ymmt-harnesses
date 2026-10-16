@@ -90,6 +90,20 @@ function modelOf(value: unknown): string {
 }
 
 /** 描き直しを頼む。 */
+/** スラッシュのメニューに出す番号のコマンドの数（/1〜/9）。 */
+const DIGIT_COMMANDS = 9
+
+/** /1〜/9 をコマンドとして登録する（1 度だけ）。 */
+async function registerDigitCommands($: EngineInterface, state: { isRegistered: boolean }): Promise<void> {
+  if (state.isRegistered) return
+  state.isRegistered = true
+  for (let n = 1; n <= DIGIT_COMMANDS; n++) {
+    await $.command
+      .register({ name: String(n), description: `次の一手の候補 ${n} を入力欄に入れる（next-prompts）` })
+      .catch(() => undefined)
+  }
+}
+
 function redraw($: EngineInterface): void {
   $.ui.invalidate('ui.render')
 }
@@ -362,6 +376,29 @@ export const register: Register = (on, options) => {
     return { text, cursor: text.length }
   })
 
+  // /1〜/9 をコマンドとしても登録する。デスクトップアプリの入力欄はアプリ自身のもので prompt.edit が来ないため、
+  // 「/1 」の置き換えが効かない。代わりにスラッシュのメニューから /1 を選ぶ（Enter で実行）と、その番号の候補を
+  // 入力欄に入れる。端末には「/1 + 空白」の置き換えがあるので、登録はデスクトップで帯を描いたときだけにする
+  // （端末のスラッシュの補完に出さない）。/reload-plugins の後の session.start には表示面が付かないことがあるので、
+  // セッション開始ではなく帯の描画で決める。
+  const digitCommands = { isRegistered: false }
+
+  on('command.run', async ($, e, next) => {
+    const n = /^[1-9]$/.test(e.command) ? Number(e.command) : null
+
+    if (n === null || n > DIGIT_COMMANDS || !isEnabled || !settings.digitSelect) return next(e)
+
+    const text = view.shown[n - 1]
+
+    if (text === undefined) return { text: `次の一手の候補 ${n} はありません` }
+
+    view.armed = null
+    await $.prompt.fill({ text, mode: 'replace' })
+    redraw($)
+
+    return {}
+  })
+
   on('ui.press', async ($, e, next) => {
     if (e.plugin === PLUGIN && e.component === 'AbovePrompt' && e.element.startsWith(BUTTON_PREFIX)) {
       await choose($, view, e.element)
@@ -376,6 +413,7 @@ export const register: Register = (on, options) => {
 
     const isDesktop = e.surface === 'desktop'
 
+    if (isDesktop && isEnabled && settings.digitSelect) void registerDigitCommands($, digitCommands)
     if (!isEnabled || (e.surface !== 'terminal' && !isDesktop) || e.props.hasSurvey || (!isDesktop && e.props.maxRows < 2)) {
       view.shown = []
 

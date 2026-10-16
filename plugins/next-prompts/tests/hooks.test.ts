@@ -43,7 +43,7 @@ const CONVERSATION: Message[] = [
 /** 偽のエンジン。 */
 function boot(options: Record<string, unknown> = {}, store: Map<string, unknown> = new Map()) {
   const hooks: { event: string; matcher: Record<string, unknown> | null; hook: Hook }[] = []
-  const calls = { complete: [] as Record<string, unknown>[], fills: [] as Record<string, unknown>[], toasts: [] as string[], logs: [] as { text: string; to?: string }[], invalidations: 0 }
+  const calls = { complete: [] as Record<string, unknown>[], fills: [] as Record<string, unknown>[], toasts: [] as string[], logs: [] as { text: string; to?: string }[], invalidations: 0, commands: [] as string[] }
   const env = {
     surfaces: ['terminal'] as string[],
     messages: CONVERSATION as unknown,
@@ -74,6 +74,7 @@ function boot(options: Record<string, unknown> = {}, store: Map<string, unknown>
         return { isFilled: true, text: env.draft, cursor: env.draft.length }
       },
     },
+    command: { register: async (spec: { name: string }) => void calls.commands.push(spec.name) },
     clock: { now: async () => env.now, sleep: (ms: number) => ((env.slept += ms), new Promise<void>(resolve => void env.sleepers.push(resolve))) },
     store: { get: async (key: string) => store.get(key), set: async (key: string, value: unknown) => void store.set(key, value) },
     ui: {
@@ -215,6 +216,52 @@ describe('候補づくり', () => {
     await tb.emit('ui.press', { plugin: 'next-prompts', element: `${BUTTON_PREFIX}1`, component: 'AbovePrompt', requestId: 'band', surface: 'desktop' }, () => ({}))
 
     expect(tb.calls.fills.at(-1)).toMatchObject({ text: 'コミットして' })
+  })
+
+  test('/1〜/9 をコマンドとして登録し、実行するとその番号の候補を入力欄に入れる（デスクトップの入力欄は prompt.edit が来ないため）', async () => {
+    const tb = boot()
+
+    tb.env.surfaces = ['desktop']
+    await tb.emit('ui.render', { ...tb.renderEvent(), surface: 'desktop' }, () => ENGINE)
+    await settle()
+    expect(tb.calls.commands).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9'])
+
+    await tb.completeTurn()
+    await settle()
+    await tb.emit('ui.render', { ...tb.renderEvent(), surface: 'desktop' }, () => ENGINE)
+    await settle()
+    expect(tb.calls.commands).toHaveLength(9)
+
+    const run = await tb.emit('command.run', { command: '2', args: '' }, () => ({ text: 'core' }))
+
+    expect(run).toEqual({})
+    expect(tb.calls.fills.at(-1)).toEqual({ text: 'コミットして', mode: 'replace' })
+
+    const missing = await tb.emit('command.run', { command: '9', args: '' }, () => ({ text: 'core' }))
+
+    expect(missing).toEqual({ text: '次の一手の候補 9 はありません' })
+
+    const other = await tb.emit('command.run', { command: 'help', args: '' }, () => ({ text: 'core' }))
+
+    expect(other).toEqual({ text: 'core' })
+  })
+
+  test('端末で帯を描いても番号のコマンドを登録しない（端末は /1 + 空白の置き換えだけ）', async () => {
+    const tb = boot()
+
+    await tb.completeTurn()
+    await settle()
+    await tb.band()
+    await settle()
+    expect(tb.calls.commands).toEqual([])
+  })
+
+  test('digitSelect=false なら番号のコマンドを登録しない', async () => {
+    const tb = boot({ digitSelect: false })
+
+    await tb.emit('ui.render', { ...tb.renderEvent(), surface: 'desktop' }, () => ENGINE)
+    await settle()
+    expect(tb.calls.commands).toEqual([])
   })
 
   test('enabled=false なら作らず何も描かない', async () => {
