@@ -198,14 +198,18 @@ export const hashText = (text: string): string => {
 
 const flowOf = (style: Style, nodes: Inline[], columns: number) => (style.reorder ? flow(nodes, columns, width, style.shape) : null)
 
-const renderInline = (el: ElementTable, style: Style, nodes: Inline[], keyBase: string): RenderElement[] => {
+const renderInline = (el: ElementTable, style: Style, nodes: Inline[], keyBase: string): (RenderElement | string)[] => {
   const { Text } = el
   const t = style.theme
   return nodes.map((n, i) => {
     const key = `${keyBase}.${i}`
     switch (n.kind) {
-      case 'text':
-        return paint(el, style, n.text, key, {}, 'prose')
+      case 'text': {
+        // 危ない語の無い素の文は Text で包まない。デスクトップは、子が空白を含まない 24 字以下の文字列だけの Text を
+        // 1 語と見て折り返さない（white-space:pre）。数字やコードにはさまれた短い和文が塊になり、手前で改行されてしまう。
+        const found = dangerRanges(n.text, style.danger, 'prose')
+        return found.length ? paint(el, style, n.text, key, {}, 'prose', found) : n.text
+      }
       case 'strong':
         return <Text key={key} bold color={t.strong}>{renderInline(el, style, n.children, key)}</Text>
       case 'emphasis':

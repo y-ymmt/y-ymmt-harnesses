@@ -254,6 +254,29 @@ test('a list item and a quote keep their mark on the first line of a wrapped ite
   }
 })
 
+test('on the desktop a short Japanese run between numbers is not its own Text, so it wraps to the full width', async $ => {
+  type Drawn = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+  // デスクトップは、子が空白を含まない 24 字以下の文字列だけの Text を 1 語と見て折り返さない（white-space:pre）。
+  const isOneWord = (node: Drawn) => {
+    const kids = node.children ?? []
+    const text = kids.join('').trim()
+    return kids.every(k => typeof k === 'string') && text !== '' && text.length <= 24 && !/\s/u.test(text)
+  }
+  const text = [
+    '下に、折り返す長さの箇条書きと引用を並べました。それぞれの印が、項目の 1 行目の高さに出ていれば直っています。',
+    '- この行頭の印が 1 行目と 2 行目のあいだあたりに出ていました。',
+    '> この引用も 2 行以上に折り返すよう長く書いているので、「│」が 1 行目の高さに出ているかを見てください。',
+  ].join('\n\n')
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...draw(text), surface })
+    const words = (await ui.findAll({ type: 'Text' })).filter(node => isOneWord(node as Drawn)).map(node => (node.children ?? []).join(''))
+    expect(words.filter(w => /[぀-ヿ一-鿿]/u.test(w)), surface).toEqual([])
+    // 数字の色はそのまま
+    expect((await ui.find({ type: 'Text', text: /^2$/ }))?.props.color, surface).toBe(presetFor(surface).number)
+    await ui.unmount()
+  }
+})
+
 test('desktopTheme picks the desktop palette; same follows theme; the terminal keeps theme', { options: { theme: 'tokyo-night', desktopTheme: 'solarized-light' } }, async $ => {
   for (const [surface, preset] of [['terminal', 'tokyo-night'], ['desktop', 'solarized-light']] as const) {
     const ui = await $.ui.mount({ ...draw('残り 42 件'), surface })
