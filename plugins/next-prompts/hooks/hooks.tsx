@@ -14,9 +14,9 @@ import {
   mergeCandidates,
   normalize,
   parseCandidates,
-  promptOf,
+  promptBlocksOf,
   systemOf,
-  transcriptOf,
+  transcriptWindowOf,
 } from './candidates'
 import type { Message } from './candidates'
 import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
@@ -67,6 +67,8 @@ type View = {
   shown: string[]
   /** 打ちかけの文があって 1 回目を受けたボタン。 */
   armed: { element: string; until: number } | null
+  /** 前回モデルに渡した会話の窓の始まりの印（`transcriptWindowOf`）。プロンプトキャッシュを当てるために据え置く。 */
+  anchor: string | null
   /** メインのターンが走っているか。 */
   isRunning: boolean
   /** 保存した候補を読み戻しにいったか（セッションの始まりに 1 回だけ）。 */
@@ -154,10 +156,10 @@ async function generate(
   signal: AbortSignal,
 ): Promise<void> {
   try {
-    // 帯を描く端末が無い（-p や SDK）なら作らない。
+    // 帯を描く面（端末かデスクトップアプリ）が無い（-p や SDK）なら作らない。
     const surfaces = await $.session.surfaces()
 
-    if (!surfaces.includes('terminal') || token !== generation()) return
+    if (!surfaces.some(surface => surface === 'terminal' || surface === 'desktop') || token !== generation()) return
 
     view.phase = 'thinking'
     view.generated = []
@@ -165,7 +167,10 @@ async function generate(
 
     const messages = (await $.session.messages()) as readonly Message[]
     const fingerprint = fingerprintOf(messages)
-    const transcript = transcriptOf(messages)
+    // 会話の窓の始まりは前回のまま据え置き、末尾に足す（頭が同じだとプロンプトキャッシュに当たる）
+    const window = transcriptWindowOf(messages, view.anchor)
+    view.anchor = window.anchor
+    const transcript = window.blocks.join('\n\n')
     const last = lastUserText(messages) || view.lastPrompt
 
     if (transcript === '') {
@@ -180,7 +185,7 @@ async function generate(
         model: settings.model,
         effort: EFFORT,
         system: systemOf(settings.count),
-        prompt: promptOf(transcript, last, settings.count),
+        prompt: promptBlocksOf(window, last, settings.count),
         maxTokens: MAX_TOKENS,
         timeoutMs: TIMEOUT_MS,
       },
@@ -190,9 +195,13 @@ async function generate(
     // かかった時間と量をデバッグログへ（`claude --debug-file` で見られる。トランスクリプトには出さない）。
     const elapsed = (await $.clock.now()) - startedAt
     const { input_tokens: input, output_tokens: output } = reply.usage
+    const { cache_read_input_tokens: cacheRead = 0, cache_creation_input_tokens: cacheWrite = 0 } = reply.usage as {
+      cache_read_input_tokens?: number
+      cache_creation_input_tokens?: number
+    }
 
     $.ui.log(
-      `${settings.model} effort=${EFFORT} ${elapsed}ms in=${input} out=${output} ` +
+      `${settings.model} effort=${EFFORT} ${elapsed}ms in=${input} cache_read=${cacheRead} cache_write=${cacheWrite} out=${output} ` +
         (reply.isAnswered ? `answered ${reply.text.length}chars` : `no-text ${reply.reason}`),
       { to: 'debug' },
     )
@@ -266,6 +275,7 @@ export const register: Register = (on, options) => {
     lastPrompt: '',
     shown: [],
     armed: null,
+    anchor: null,
     isRunning: false,
     isRestoreTried: false,
   }
@@ -364,7 +374,9 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const beneath = await next(e)
 
-    if (!isEnabled || e.surface !== 'terminal' || e.props.hasSurvey || e.props.maxRows < 2) {
+    const isDesktop = e.surface === 'desktop'
+
+    if (!isEnabled || (e.surface !== 'terminal' && !isDesktop) || e.props.hasSurvey || (!isDesktop && e.props.maxRows < 2)) {
       view.shown = []
 
       return beneath
@@ -382,7 +394,11 @@ export const register: Register = (on, options) => {
     const candidates = e.props.isWorking
       ? []
       : mergeCandidates(view.suggestion, view.generated, settings.count, view.lastPrompt)
-    const placed = layoutLabels(candidates, Math.max(20, e.props.bodyColumns), 2, settings.digitSelect)
+    // 端末は桁数で切り詰めて 2 行に収める。デスクトップは文字幅が一定でないので桁合わせに頼らず、
+    // 全文を番号つきで並べて折り返しに任せる（候補は 1 つ 40 文字以内）。
+    const placed = isDesktop
+      ? candidates.map((text, index) => ({ index, label: settings.digitSelect && index < 9 ? `${index + 1} ${text}` : text }))
+      : layoutLabels(candidates, Math.max(20, e.props.bodyColumns), 2, settings.digitSelect)
     const idle = e.props.isWorking ? '（作業中）' : isThinking ? '候補を考え中…' : candidates.length === 0 ? '—' : ''
 
     view.shown = candidates
@@ -391,15 +407,20 @@ export const register: Register = (on, options) => {
     const row = (
       <Box key={slotKey(BAND_ORDER.nextPrompts, 'next-prompts')} flexDirection="row" flexWrap="wrap" columnGap={GAP}>
         <Text dimColor>{HEADING}</Text>
-        {placed.map(item => (
-          <Box key={`${BUTTON_PREFIX}${item.index}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
-            <Button
-              key={`${BUTTON_PREFIX}${item.index}`}
-              label={item.label}
-              onPress={() => undefined}
-            />
-          </Box>
-        ))}
+        {placed.map(item =>
+          isDesktop ? (
+            // ネイティブのボタンがそれ自身の見た目を持つので、背景の Box は要らない。
+            <Button key={`${BUTTON_PREFIX}${item.index}`} label={item.label} onPress={() => undefined} />
+          ) : (
+            <Box key={`${BUTTON_PREFIX}${item.index}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
+              <Button
+                key={`${BUTTON_PREFIX}${item.index}`}
+                label={item.label}
+                onPress={() => undefined}
+              />
+            </Box>
+          ),
+        )}
         {idle === '' ? null : <Text dimColor>{idle}</Text>}
       </Box>
     )

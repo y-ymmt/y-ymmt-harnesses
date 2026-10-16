@@ -136,7 +136,10 @@ describe('候補づくり', () => {
     expect(tb.calls.complete[0]?.['effort'], '軽い仕事なので浅く考えさせる').toBe('low')
     expect(tb.calls.logs.map(l => l.to), 'かかった時間はデバッグログだけに出す').toEqual(['debug'])
     expect(tb.calls.logs[0]?.text).toMatch(/^haiku effort=low \d+ms in=.* out=.* answered/)
-    expect(String(tb.calls.complete[0]?.['prompt'])).toContain('example-app のログイン画面を直して')
+    const prompt = tb.calls.complete[0]?.['prompt'] as { text: string; cache?: true }[]
+    expect(prompt.map(block => block.text).join('')).toContain('example-app のログイン画面を直して')
+    expect(prompt.filter(block => block.cache).length, '会話の最後の発言に 1 つだけキャッシュの印').toBe(1)
+    expect(prompt.at(-1)?.cache, '毎回変わる依頼の部分は印より後').toBeUndefined()
 
     const drawn = await tb.band()
 
@@ -181,6 +184,37 @@ describe('候補づくり', () => {
     await settle()
 
     expect(tb.calls.complete.length).toBe(0)
+  })
+
+  test('デスクトップだけのセッションでも作る', async () => {
+    const tb = boot()
+
+    tb.env.surfaces = ['desktop']
+    await tb.completeTurn()
+    await settle()
+
+    expect(tb.calls.complete.length).toBe(1)
+  })
+
+  test('デスクトップへは切り詰めず全文を番号つきのボタンで描き、押すと入力欄に入る', async () => {
+    const tb = boot()
+    const long = 'これはとても長い候補の文でも桁数では切り詰めずにそのまま出す'
+
+    tb.env.surfaces = ['desktop']
+    tb.env.reply = async () => ({ isAnswered: true, text: JSON.stringify([long, 'コミットして', '差分を見せて', '別の画面も確認して']), usage: {} })
+    await tb.completeTurn()
+    await settle()
+
+    const out = (await tb.emit('ui.render', { ...tb.renderEvent({ maxRows: 1, bodyColumns: 10 }), surface: 'desktop' }, () => ENGINE)) as Node
+    const labels = JSON.stringify(out)
+
+    expect(labels).toContain(`1 ${long}`)
+    expect(labels).toContain('2 コミットして')
+    expect(labels).not.toContain('…')
+
+    await tb.emit('ui.press', { plugin: 'next-prompts', element: `${BUTTON_PREFIX}1`, component: 'AbovePrompt', requestId: 'band', surface: 'desktop' }, () => ({}))
+
+    expect(tb.calls.fills.at(-1)).toMatchObject({ text: 'コミットして' })
   })
 
   test('enabled=false なら作らず何も描かない', async () => {
@@ -283,7 +317,7 @@ describe('消すとき', () => {
     expect(candidatesOf(working).length, '作業中は候補を出さない').toBe(0)
     expect(textOf(working), '行は残して位置を保つ').toContain('（作業中）')
     expect(await tb.band(ENGINE, { hasSurvey: true })).toBe(ENGINE)
-    expect(await tb.emit('ui.render', { ...tb.renderEvent(), surface: 'desktop' }, () => ENGINE)).toBe(ENGINE)
+    expect(await tb.emit('ui.render', { ...tb.renderEvent(), surface: 'vscode' }, () => ENGINE)).toBe(ENGINE)
   })
 })
 

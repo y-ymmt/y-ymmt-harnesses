@@ -19,6 +19,9 @@ import {
   requestCountOf,
   systemOf,
   transcriptOf,
+  transcriptWindowOf,
+  promptBlocksOf,
+  TRANSCRIPT_SLACK,
   truncateLabel,
   uniqueCandidates,
   TRANSCRIPT_BUDGET,
@@ -228,5 +231,37 @@ describe('サブエージェントの報告', () => {
 
     expect(lastUserText(messages)).toBe('直して')
     expect(transcriptOf(messages)).not.toContain('報告です')
+  })
+})
+
+describe('プロンプトキャッシュに当てる会話の窓', () => {
+  const turn = (i: number): Message[] => [
+    { role: 'user', text: `依頼 ${i} ${'あ'.repeat(900)}` },
+    { role: 'assistant', text: `返事 ${i} ${'い'.repeat(1_900)}` },
+  ]
+  const history = (n: number) => Array.from({ length: n }, (_, i) => turn(i)).flat()
+
+  test('前回の始まりが残っていて上限に収まる間は、始まりを据え置いて末尾に足す', () => {
+    const first = transcriptWindowOf(history(10), null, 12_000)
+    const next = transcriptWindowOf(history(11), first.anchor, 12_000)
+    expect(next.anchor).toBe(first.anchor)
+    expect(next.blocks.slice(0, first.blocks.length)).toEqual(first.blocks)
+    expect(next.blocks.length).toBe(first.blocks.length + 2)
+  })
+
+  test('広げてよい上限を超えたら、直近から budget で切り直す', () => {
+    const first = transcriptWindowOf(history(10), null, 12_000)
+    let window = first
+    for (let n = 11; n < 40 && window.anchor === first.anchor; n++) window = transcriptWindowOf(history(n), window.anchor, 12_000)
+    expect(window.anchor).not.toBe(first.anchor)
+    expect(window.blocks.join('\n\n').length).toBeLessThanOrEqual(12_000)
+    expect(TRANSCRIPT_SLACK).toBeGreaterThan(1)
+  })
+
+  test('塊に分けた依頼文は、つなぐと promptOf と同じ文になり、印は会話の最後にだけ付く', () => {
+    const window = transcriptWindowOf(history(3), null)
+    const blocks = promptBlocksOf(window, '依頼 2', 4)
+    expect(blocks.map(b => b.text).join('')).toBe(promptOf(window.blocks.join('\n\n'), '依頼 2', 4))
+    expect(blocks.findIndex(b => b.cache)).toBe(blocks.length - 2)
   })
 })

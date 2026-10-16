@@ -59,11 +59,24 @@ function toolsLine(tools: readonly string[]): string {
 /** 1 つの発言のまとまり（続けて来た同じ役の発言をまとめたもの）。 */
 type Entry = { role: 'user' | 'assistant'; texts: string[]; tools: string[] }
 
+/** 会話の窓を広げてよい上限（`budget` の倍数）。始まりを据え置いたまま、ここまでは末尾に足していく。 */
+export const TRANSCRIPT_SLACK = 1.5
+
 /**
- * 会話を、モデルに渡す文に組む。ツールの結果だけのユーザー行は落とし、続けて来た Claude の行は
- * 1 つにまとめる（ツール名だけ残す）。直近から遡って `budget` 文字に収まるまで入れる。
+ * モデルに渡す会話の窓。発言ごとの塊（古い順）と、窓の始まりの塊を表す印（`anchor`）。
+ *
+ * プロンプトキャッシュは「前回と同じ頭」にしか当たらない。毎回「直近から budget 文字」で切ると頭がずれて当たらないので、
+ * 前回の始まり（`anchor`）が残っていて、そこからの合計が `budget × TRANSCRIPT_SLACK` に収まる間は始まりを据え置き、
+ * 末尾に新しい発言を足すだけにする。収まらなくなったら、直近から `budget` 文字で切り直す（そのときだけキャッシュが外れる）。
  */
-export function transcriptOf(messages: readonly Message[], budget = TRANSCRIPT_BUDGET): string {
+export type TranscriptWindow = { readonly blocks: readonly string[]; readonly anchor: string | null }
+
+/** 塊の印。中身の長さと先頭・末尾から作る（同じ塊なら同じ印）。 */
+function anchorOf(block: string): string {
+  return `${block.length}:${block.slice(0, 80)}:${block.slice(-40)}`
+}
+
+export function transcriptWindowOf(messages: readonly Message[], anchor: string | null = null, budget = TRANSCRIPT_BUDGET): TranscriptWindow {
   const entries: Entry[] = []
 
   for (const message of messages) {
@@ -84,16 +97,27 @@ export function transcriptOf(messages: readonly Message[], budget = TRANSCRIPT_B
     }
   }
 
+  const all = entries.map(entry => {
+    const body = entry.texts.join('\n\n')
+    return entry.role === 'user'
+      ? `[ユーザー]\n${clip(body, USER_HEAD, USER_TAIL)}`
+      : `[Claude]\n${clip(body, ASSISTANT_HEAD, ASSISTANT_TAIL)}${entry.tools.length > 0 ? `\n（使ったツール: ${toolsLine(entry.tools)}）` : ''}`.replace('[Claude]\n\n', '[Claude]\n')
+  })
+
+  // 前回の始まりが残っていて、そこから末尾までが広げてよい上限に収まるなら、始まりを据え置く。
+  if (anchor !== null) {
+    const at = all.findIndex(block => anchorOf(block) === anchor)
+    const kept = at < 0 ? [] : all.slice(at)
+    const total = kept.reduce((sum, block) => sum + block.length + 2, 0)
+    if (at >= 0 && total <= budget * TRANSCRIPT_SLACK) return { blocks: kept, anchor }
+  }
+
+  // 直近から遡って budget 文字まで。
   const blocks: string[] = []
   let total = 0
 
-  for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const entry = entries[i] as Entry
-    const body = entry.texts.join('\n\n')
-    const block =
-      entry.role === 'user'
-        ? `[ユーザー]\n${clip(body, USER_HEAD, USER_TAIL)}`
-        : `[Claude]\n${clip(body, ASSISTANT_HEAD, ASSISTANT_TAIL)}${entry.tools.length > 0 ? `\n（使ったツール: ${toolsLine(entry.tools)}）` : ''}`.replace('[Claude]\n\n', '[Claude]\n')
+  for (let i = all.length - 1; i >= 0; i -= 1) {
+    const block = all[i] as string
     const size = block.length + 2
 
     if (total + size > budget) {
@@ -106,7 +130,13 @@ export function transcriptOf(messages: readonly Message[], budget = TRANSCRIPT_B
     total += size
   }
 
-  return blocks.reverse().join('\n\n')
+  blocks.reverse()
+  return { blocks, anchor: blocks.length > 0 ? anchorOf(blocks[0] as string) : null }
+}
+
+/** 直近から遡って budget 文字までの会話（発言の間は空行）。 */
+export function transcriptOf(messages: readonly Message[], budget = TRANSCRIPT_BUDGET): string {
+  return transcriptWindowOf(messages, null, budget).blocks.join('\n\n')
 }
 
 /** 送信済みの直前の依頼（いちばん新しいユーザーの発言）。 */
@@ -160,17 +190,32 @@ export function systemOf(count: number): string {
   ].join('\n')
 }
 
-/** 候補を作らせるときの依頼文。 */
-export function promptOf(transcript: string, last: string, count: number): string {
+/** 候補を作らせるときの依頼文の、会話のあとに付ける部分。 */
+function askOf(last: string, count: number): string {
   return [
-    '<conversation>',
-    transcript,
     '</conversation>',
     '',
     `直前のユーザーの依頼: ${last === '' ? '（なし）' : `「${clip(last, 200, 0)}」`}`,
     '',
     `ユーザーが次に送りそうな依頼を ${requestCountOf(count)} 個、種類が重ならないように JSON 配列で出力してください。`,
   ].join('\n')
+}
+
+/** 候補を作らせるときの依頼文。 */
+export function promptOf(transcript: string, last: string, count: number): string {
+  return ['<conversation>', transcript, askOf(last, count)].join('\n')
+}
+
+/**
+ * 依頼文を、プロンプトキャッシュに載る塊に分けたもの（つなぐと `promptOf` と同じ文）。
+ *
+ * 会話は発言ごとの塊にし、最後の発言に印（`cache`）を付ける。次の呼び出しでは、前回の印までの頭が同じなので
+ * キャッシュから読まれる（API は印より前の塊の境目も遡って探す）。会話のあとの依頼の部分は毎回変わるので印より後に置く。
+ */
+export function promptBlocksOf(window: TranscriptWindow, last: string, count: number): { text: string; cache?: true }[] {
+  if (window.blocks.length === 0) return [{ text: promptOf('', last, count) }]
+  const blocks = window.blocks.map((block, i) => ({ text: `${i === 0 ? '<conversation>\n' : '\n\n'}${block}` }))
+  return [...blocks.slice(0, -1), { ...(blocks.at(-1) as { text: string }), cache: true as const }, { text: `\n${askOf(last, count)}` }]
 }
 
 /** 1 つの候補を均す（改行・連続する空白・囲みのかぎ括弧を外す）。 */
