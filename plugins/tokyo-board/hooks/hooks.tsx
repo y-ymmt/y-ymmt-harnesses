@@ -12,21 +12,25 @@ import {
   BOARD_BACK,
   BOARD_FRAME,
   BOARD_ROWS,
+  LED_ALERT,
+  LED_OK,
   NEWS_HEAD,
   NEWS_LABEL,
   NEWS_TEXT,
   PANEL_ROWS,
   PANEL_WIDTH,
+  desktopWeatherOf,
   newsWindowOf,
   transitBoard,
   weatherPanel,
 } from './board'
-import type { Line } from './board'
+import type { Line, Run } from './board'
 import {
   AREA_URL,
   USER_AGENT,
   changedLines,
   diainfoUrl,
+  lineColorOf,
   lineIdOf,
   linesOf,
   parseAreaLines,
@@ -36,6 +40,8 @@ import type { LineStatus } from './transit'
 import {
   LATEST_TIME_URL,
   NO_FORECAST,
+  SKY_COLOR,
+  SKY_NAME,
   amedasUrl,
   dailyOf,
   forecastPageUrl,
@@ -50,6 +56,8 @@ import type { Amedas, Forecast, Sky } from './weather'
 import {
   NO_ALERTS,
   QUAKE_URL,
+  alertColorOf,
+  alertTextOf,
   hasAlerts,
   newAlertsOf,
   parseWarnings,
@@ -252,8 +260,12 @@ type Board = {
   transit: LineStatus[]
   /** 警報・注意報と地震。 */
   alerts: Alerts
+  /** 描く先。`session.start` で決まる（`-p`・SDK は null）。 */
+  surface: 'terminal' | 'desktop' | null
   /** 流すニュースの見出しと、どこが誰の見出しか。 */
   news: NewsLine
+  /** 並べ終えた見出し。デスクトップは流さず、これをそのまま並べる。 */
+  newsItems: NewsItem[]
   /** 配信元ごとの見出し（1 本落ちても他は残す）。 */
   newsByFeed: Record<string, NewsItem[]>
   /** 路線名 → id。1 日覚えておく。 */
@@ -469,12 +481,11 @@ async function fetchNews($: EngineInterface, board: Board): Promise<void> {
       .map(item => ({ ...item, label: feed.label }))
   }
 
-  board.news = newsLineOf(
-    interleave(
-      board.feeds.map(feed => board.newsByFeed[feed.url] ?? []),
-      board.newsCount,
-    ),
+  board.newsItems = interleave(
+    board.feeds.map(feed => board.newsByFeed[feed.url] ?? []),
+    board.newsCount,
   )
+  board.news = newsLineOf(board.newsItems)
 
   await repaint($, board)
 }
@@ -567,6 +578,16 @@ async function stepMarquee($: EngineInterface, board: Board): Promise<void> {
   board.step += 1
 
   await repaint($, board)
+}
+
+/** デスクトップでニュースの見出しを入れ替える間隔。 */
+const DESKTOP_NEWS_MS = 10_000
+/** デスクトップのボタンの字は切り詰められないので、見出しはこの字数で切る（字幅ではなく字数）。 */
+const DESKTOP_LABEL_MAX = 48
+
+function clipLabel(label: string): string {
+  const chars = [...label]
+  return chars.length <= DESKTOP_LABEL_MAX ? label : `${chars.slice(0, DESKTOP_LABEL_MAX - 1).join('')}…`
 }
 
 /** 今ボードを出すか。人の指定があればそれ、無ければ時間帯どおり。 */
@@ -695,7 +716,9 @@ export const register: Register = (on, options) => {
     forecast: NO_FORECAST,
     transit: [],
     alerts: NO_ALERTS,
+    surface: null,
     news: NO_NEWS,
+    newsItems: [],
     newsByFeed: {},
     area: {},
     areaAtMs: -AREA_TTL_MS,
@@ -708,10 +731,13 @@ export const register: Register = (on, options) => {
   }
 
   on('session.start', ($, e, next) => {
-    // 帯を描くのは端末（terminal）だけ。`-p`・SDK（e.surface が null）やデスクトップなど、
-    // 描かないセッションでは取得もタイマーも始めない。e.surface は `$.session.surfaces()` の
+    // 帯を描くのは端末（terminal）とデスクトップ（desktop）だけ。`-p`・SDK（e.surface が null）や
+    // それ以外の描く先では取得もタイマーも始めない。e.surface は `$.session.surfaces()` の
     // 先頭で、端末があれば必ず先頭に来る。
-    if (board.timers.length === 0 && board.isShown && e.surface === 'terminal') {
+    const isDrawn = e.surface === 'terminal' || e.surface === 'desktop'
+
+    if (board.timers.length === 0 && board.isShown && isDrawn) {
+      board.surface = e.surface
       // 時間帯の中か外かと、前にボタンで決めた表示を、この順に読む（読み終えるまで見直しは待つ）。
       void start($, board)
       board.timers.push(
@@ -727,7 +753,12 @@ export const register: Register = (on, options) => {
         $.clock.every(NEWS_MS, () => {
           void fetchNews($, board)
         }),
-        $.clock.every(board.marqueeMs, () => {
+      )
+
+      // 端末は 1 セルずつ流す。デスクトップは字幅が一定でなく窓の桁が合わないので流さず、
+      // ニュースの見出しを 1 本ずつ DESKTOP_NEWS_MS ごとに入れ替える（同じ step を使う）。
+      board.timers.push(
+        $.clock.every(e.surface === 'terminal' ? board.marqueeMs : DESKTOP_NEWS_MS, () => {
           void stepMarquee($, board)
         }),
       )
@@ -787,7 +818,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'terminal') {
+    if (e.surface !== 'terminal' && e.surface !== 'desktop') {
       return next(e)
     }
 
@@ -809,29 +840,100 @@ export const register: Register = (on, options) => {
     const pressLink = (): void => undefined
 
     // ボードの下に置く出し入れボタン。ボードの有無で位置が動かない。
-    const visible = isVisible(board) && PANEL_ROWS + 1 <= e.props.maxRows
+    // デスクトップは行数を数えず、描ききれない分は帯が自分で送る。
+    const isDesktop = e.surface === 'desktop'
+    const visible = isVisible(board) && (isDesktop || PANEL_ROWS + 1 <= e.props.maxRows)
+    const toggleLabel = visible ? '天気・運行を隠す' : '天気・運行を表示'
     const toggle = (
       <Box key={slotKey(BAND_ORDER.boardToggle, 'tokyo-board-toggle')} flexDirection="row">
-        <Box key={`${TOGGLE_BUTTON}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
-          <Button
-            key={TOGGLE_BUTTON}
-            label={visible ? '天気・運行を隠す' : '天気・運行を表示'}
-            dimColor
-            onPress={pressToggle}
-          />
-        </Box>
+        {isDesktop ? (
+          // デスクトップのボタンはネイティブで、背景も自前で持つ。チップは敷かない。
+          <Button key={TOGGLE_BUTTON} label={toggleLabel} onPress={pressToggle} />
+        ) : (
+          <Box key={`${TOGGLE_BUTTON}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
+            <Button key={TOGGLE_BUTTON} label={toggleLabel} dimColor onPress={pressToggle} />
+          </Box>
+        )}
       </Box>
     )
 
     // 出していないあいだ（隠した、または時間帯の外）はボタンだけ。
     if (!visible) {
-      if (e.props.maxRows < 2) {
+      if (!isDesktop && e.props.maxRows < 2) {
         return beneath
       }
 
       return (
         <Box key={BAND_STACK} flexDirection="column">
           {stackBand(beneath, [toggle])}
+        </Box>
+      )
+    }
+
+    // デスクトップ: 字幅が一定でないので、桁合わせ・切り詰め・流し（マーキー）はしない。
+    // 区切りを空けて並べ、折り返しは描く側に任せる。リンクは端末と同じボタン（key も同じ決め方）。
+    if (isDesktop) {
+      let count = 0
+      const linkOf = (label: string, href: string): RenderElement => (
+        <Button key={linkKeyOf(href, count++)} label={label} onPress={pressLink} />
+      )
+      const alerts = board.showAlerts ? board.alerts : NO_ALERTS
+      const tint = SKY_COLOR[board.sky]
+      const facts = desktopWeatherOf(board.weather, board.forecast, board.weatherStale, board.weatherAt)
+      const alertText = alertTextOf(alerts, board.placeName)
+      const items = board.showNews ? board.newsItems : []
+      // 見出しは 1 本だけ出し、step で入れ替える（全部並べると帯が長くなる）。
+      const shownItem = items.length === 0 ? null : items[board.step % items.length]
+
+      return (
+        <Box key={BAND_STACK} flexDirection="column">
+          {stackBand(
+            beneath,
+            [
+              <Box key={slotKey(BAND_ORDER.board, 'tokyo-board')} flexDirection="column">
+                <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+                  {linkOf(`${board.placeName} ${SKY_NAME[board.sky]}`, forecastPageUrl(board.office))}
+                  {facts.map(run => (
+                    <Text color={run.color} dimColor={run.dimColor} bold={run.bold}>
+                      {run.text}
+                    </Text>
+                  ))}
+                </Box>
+                {board.transit.map(line => (
+                  // 1 路線 1 行。遅延の説明は長いので折り返さず末尾を切る（全文は路線名のボタンの先で読める）。
+                  <Box flexDirection="row" columnGap={1}>
+                    <Text color={lineColorOf(line.name)}>■</Text>
+                    {linkOf(line.name, diainfoUrl(line.id))}
+                    <Box flexShrink={1}>
+                      <Text color={line.isNormal ? LED_OK : LED_ALERT} bold={!line.isNormal} dimColor={board.transitStale} wrap="truncate-end">
+                        {line.text}
+                      </Text>
+                    </Box>
+                  </Box>
+                ))}
+                {hasAlerts(alerts) ? (
+                  <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+                    <Text color={alertColorOf(alerts)} bold={true}>
+                      ⚠
+                    </Text>
+                    {linkOf(alertText, warningPageUrl(board.office))}
+                  </Box>
+                ) : null}
+                {shownItem !== null ? (
+                  <Box flexDirection="row" columnGap={1}>
+                    <Text bold={true}>NEWS</Text>
+                    {(() => {
+                      const label = clipLabel(`[${shownItem.label}] ${shownItem.title}`)
+
+                      return /^https?:\/\//i.test(shownItem.link) ? linkOf(label, shownItem.link) : <Text>{label}</Text>
+                    })()}
+                    <Text color="#8A8A8A">{`${(board.step % items.length) + 1}/${items.length}`}</Text>
+                  </Box>
+                ) : null}
+              </Box>,
+              toggle,
+            ],
+          )}
         </Box>
       )
     }
@@ -872,13 +974,22 @@ export const register: Register = (on, options) => {
      *
      * mac 標準のターミナルのように OSC 8 のリンクを描けない端末では、`Link` は URL の文字を並べて
      * 枠を崩す。ボタンならどの端末でも見た目は字のままで、押すと `ui.press` で自分で開く。
-     * ボタンの字は 1 色しか持てないので、地の色だけ外の Box で敷く。
+     * tokyo-board: Claude Code 2.1.295 から Button の子に `Text`（色・太字・薄字）を置けるので、
+     * 地名（空模様の色・太字）・路線名・警報（警報の色・太字）・見出し（NEWS_TEXT）は元の色のまま出す。
+     * 押せるとわかりにくくならないかは、ホバー・フォーカスで端末が字を反転することで足りると見た。
+     * 掲示板の地は電光掲示板の黒で、他のボタンのようなチップの背景は敷かない（敷くと枠・字の並びが崩れる）。
+     * 地の色は外の Box で敷く（行の他の字と同じ地にそろえる）。
+     * key は子の字が変わる（流れる見出し）ので必須。リンク先と通し番号で決める。
      */
-    const linkButton = (text: string, href: string, backgroundColor?: string): RenderElement => {
+    const linkButton = (style: Run, href: string): RenderElement => {
       const key = linkKeyOf(href, linkCount++)
       return (
-        <Box key={`${key}.back`} flexShrink={0} {...(backgroundColor === undefined ? {} : { backgroundColor })}>
-          <Button key={key} label={text} plain onPress={pressLink} />
+        <Box key={`${key}.back`} flexShrink={0} {...(style.backgroundColor === undefined ? {} : { backgroundColor: style.backgroundColor })}>
+          <Button key={key} plain onPress={pressLink}>
+            <Text color={style.color} dimColor={style.dimColor} bold={style.bold}>
+              {style.text}
+            </Text>
+          </Button>
         </Box>
       )
     }
@@ -887,7 +998,7 @@ export const register: Register = (on, options) => {
     const runsOf = (line: Line, href: string | null = null): RenderElement[] =>
       line.map(run =>
         href !== null && run.isLink === true ? (
-          linkButton(run.text, href, run.backgroundColor)
+          linkButton(run, href)
         ) : (
           <Text
             color={run.color}
@@ -930,7 +1041,7 @@ export const register: Register = (on, options) => {
                           {run.text}
                         </Text>
                       ) : (
-                        linkButton(run.text, run.href, BOARD_BACK)
+                        linkButton({ text: run.text, color: NEWS_TEXT, backgroundColor: BOARD_BACK }, run.href)
                       ),
                     )}
                     <Text color={BOARD_FRAME}>║</Text>

@@ -264,7 +264,7 @@ test('本当の出入りではリセットする: 中で隠したまま開いた
   await ui.unmount()
 })
 
-for (const surface of [null, 'desktop'] as const) {
+for (const surface of [null] as const) {
   test(`描かないセッション（${surface ?? '-p・SDK'}）では、時間帯の中でも取りにいかず、タイマーも張らない`, async ($, on) => {
     const tb = await boot($, on, 18, { surface })
 
@@ -311,4 +311,88 @@ test('地名・路線名・警報のボタンを押すと、そのリンク先�
   expect(hrefOfLinkKey('board-toggle')).toBeNull()
 
   await ui.unmount()
+})
+
+test('リンクのボタンは字の色・太字を子の Text に持つ（2.1.295 から。色を落とさない）', { options: { warningArea: '270000', placeName: '大阪' } }, async ($, on) => {
+  await boot($, on, 18, { answer: url => (url.endsWith('/warning/270000.json') ? OSAKA_WARNING : null) })
+  const ui = await $.ui.mount(BAND)
+  const buttons = (await ui.findAll({ type: 'Button' })).filter(button => String(button.key).startsWith(LINK_PREFIX))
+  const colored = buttons.map(b => b.children.find((c: { type?: string }) => c.type === 'Text') as { props: Record<string, unknown> } | undefined)
+  expect(colored.every(t => t !== undefined), '子は Text').toBe(true)
+  const warning = buttons.findIndex(b => hrefOfLinkKey(String(b.key))?.includes('/warning/'))
+  const panel = buttons.findIndex(b => hrefOfLinkKey(String(b.key))?.includes('/forecast/'))
+  expect(colored[warning]!.props['color'], '警報の色').toBeTruthy()
+  expect(colored[warning]!.props['bold']).toBe(true)
+  expect(colored[panel]!.props['color'], '空模様の色').toBeTruthy()
+  expect(colored[panel]!.props['bold']).toBe(true)
+  await ui.unmount()
+})
+
+/** デスクトップの帯 1 枚ぶんの props（桁数ではなく、行の数だけ渡す）。 */
+const DESKTOP_BAND = { ...BAND, surface: 'desktop' as const }
+
+/** 天気・路線・警報・ニュースがそろって取れた答え（fixtures を使わず最小の形）。 */
+const DESKTOP_ANSWER = (url: string): string | null => {
+  if (url.endsWith('/warning/130000.json')) {
+    return JSON.stringify({ areaTypes: [{ areas: [{ code: '130010', warnings: [{ code: '03', status: '発表' }] }] }] })
+  }
+
+  return null
+}
+
+test('デスクトップ: 時間帯の中なら取りにいき、帯に天気・ボタン・出し入れが出る（桁合わせの Raster や流れる窓は使わない）', async ($, on) => {
+  const tb = await boot($, on, 18, { surface: 'desktop', answer: DESKTOP_ANSWER })
+  const ui = await $.ui.mount(DESKTOP_BAND)
+
+  expect(tb.fetched.length, '端末と同じく取りにいく').toBeGreaterThan(0)
+  expect((await ui.find({ key: TOGGLE }))?.props['label']).toBe('天気・運行を隠す')
+
+  const hrefs = (await ui.findAll({ type: 'Button' })).map(button => hrefOfLinkKey(String(button.key))).filter(href => href !== null)
+  expect(hrefs, '地名のボタン').toContain('https://www.jma.go.jp/bosai/forecast/#area_type=offices&area_code=130000')
+  expect(hrefs, '警報のボタン').toContain('https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code=130000')
+  expect(await ui.findAll({ type: 'Text', text: /[┌╔║│]/ }), '罫線で枠を作らない').toHaveLength(0)
+  expect(await ui.findAll({ type: 'Text', text: /°C/ }), '気温を字で出す').toHaveLength(1)
+
+  await ui.unmount()
+})
+
+test('デスクトップ: 地名のボタンを押すと open に渡す。出し入れのボタンも効く', async ($, on) => {
+  const runs: string[][] = []
+  on('process.run', (_, e) => {
+    runs.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  const tb = await boot($, on, 18, { surface: 'desktop' })
+  const ui = await $.ui.mount(DESKTOP_BAND)
+  const panel = (await ui.findAll({ type: 'Button' })).map(b => String(b.key)).find(key => hrefOfLinkKey(key)?.includes('/forecast/'))
+
+  expect(panel).toBeDefined()
+  await ui.press({ key: panel! })
+  expect(runs).toEqual([['open', 'https://www.jma.go.jp/bosai/forecast/#area_type=offices&area_code=130000']])
+
+  await ui.press({ key: TOGGLE })
+  expect(tb.stored('board.override')).toEqual({ value: 'hide', period: at(17) })
+  expect((await ui.find({ key: TOGGLE }))?.props['label']).toBe('天気・運行を表示')
+  expect(await ui.findAll({ type: 'Text' }), 'ボードの字は描かない').toHaveLength(0)
+
+  await ui.unmount()
+})
+
+test('デスクトップ: 時間帯の外では出し入れのボタンだけで、取りにいかない', async ($, on) => {
+  const tb = await boot($, on, 10, { surface: 'desktop' })
+  const ui = await $.ui.mount(DESKTOP_BAND)
+
+  expect((await ui.find({ key: TOGGLE }))?.props['label']).toBe('天気・運行を表示')
+  expect(tb.fetched).toEqual([])
+
+  await ui.unmount()
+})
+
+test('デスクトップ: 流さない。時間が進んでも描き直しの種（マーキー）は張らない', async ($, on) => {
+  const tb = await boot($, on, 18, { surface: 'desktop' })
+  const before = tb.fetched.length
+
+  await tb.clock.advance(5_000)
+  // 天気・運行の周期（既定 5 分）に届かない間は、マーキーが無いので何も増えない。
+  expect(tb.fetched.length).toBe(before)
 })

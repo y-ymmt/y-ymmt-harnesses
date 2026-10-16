@@ -293,6 +293,34 @@ export function weatherPanel(
   return [head, ...body, forecastRow(forecast, inner, tint, isStale), tail]
 }
 
+/**
+ * デスクトップ用の天気の 1 行。桁を合わせず、区切りを空けて並べるだけ（折り返しは描く側に任せる）。
+ *
+ * 文字の色はテーマの既定のままにし、きょうの見通しだけ端末と同じ色を付ける。
+ *
+ * @param amedas 実況（取れていなければ null）
+ * @param forecast きょうの見通し
+ * @param isStale 取れずに前回値を出しているか
+ * @param at 取りにいった時刻（`HH:MM`）
+ */
+export function desktopWeatherOf(amedas: Amedas | null, forecast: Forecast, isStale: boolean, at: string): Run[] {
+  const temp = amedas?.temp ?? null
+  const pop = forecast.pop === null ? '--' : String(Math.round(forecast.pop))
+  const high = forecast.high === null ? '--' : String(Math.round(forecast.high))
+  const low = forecast.low === null ? '--' : String(Math.round(forecast.low))
+
+  return [
+    { text: `${temp === null ? '--' : temp.toFixed(1)}°C`, bold: true, dimColor: isStale },
+    { text: `湿度 ${shownOf(amedas?.humidity ?? null, 0)}%`, dimColor: isStale },
+    { text: `雨${shownOf(amedas?.precipitation ?? null)}mm`, dimColor: isStale },
+    { text: `降水${pop}%`, color: FORECAST_COLOR.pop, dimColor: isStale },
+    { text: `↑${high}°`, color: FORECAST_COLOR.high, dimColor: isStale },
+    { text: `↓${low}°`, color: FORECAST_COLOR.low, dimColor: isStale },
+    { text: `日没${forecast.sunset ?? '--:--'}`, color: FORECAST_COLOR.sunset, dimColor: isStale },
+    { text: at, color: '#8A8A8A', dimColor: isStale },
+  ]
+}
+
 /** きょうの見通しの色。 */
 const FORECAST_COLOR = {
   pop: '#4AA3FF',
