@@ -412,8 +412,9 @@ export const register: Register = (on, options) => {
     // 「開く:」の行のボタンを先に決め、URL のボタンの番号を本文のリンクにも付ける
     const buttons = openButtons(base, blocks, abs => known.get(abs) === true)
     const s = buttons.linkNumbers.size > 0 ? { ...base, linkNumbers: buttons.linkNumbers } : base
+    // ⏺ は返事の 1 行目にそろえる（デスクトップの行は既定で縦の真ん中にそろい、長い返事では途中に出るため）
     return (
-      <Box flexDirection="row">
+      <Box flexDirection="row" alignItems="flex-start">
         <Box width={2} flexShrink={0}>
           <Text color={s.theme.accent}>{e.props.isFirstOfReply ? '⏺' : ' '}</Text>
         </Box>

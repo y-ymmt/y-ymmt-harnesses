@@ -851,7 +851,7 @@ export const renderExpandedShell = (el: ElementTable, style: Style, row: ToolRow
   const dot = row.isErrored ? t.codeFlag : row.isInterrupted ? t.codeComment : row.isRunning ? t.accent : t.number
   return (
     <Box flexDirection="column">
-      <Box flexDirection="row">
+      <Box flexDirection="row" alignItems="flex-start">
         <Box width={2} flexShrink={0}>
           <Text color={dot}>{row.isRunning ? '◌' : '●'}</Text>
         </Box>

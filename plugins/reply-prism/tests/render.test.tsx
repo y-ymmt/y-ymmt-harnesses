@@ -254,6 +254,23 @@ test('a list item and a quote keep their mark on the first line of a wrapped ite
   }
 })
 
+test('the reply mark ⏺ sits on the first line of a long reply (terminal and desktop)', async $ => {
+  type Drawn = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+  const textOf = (node: unknown): string =>
+    typeof node === 'string' ? node : ((node as Drawn | undefined)?.children ?? []).map(textOf).join('')
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...draw('一つ目の段落\n\n二つ目の段落\n\n- 箇条書き\n\n> 引用'), surface })
+    // ⏺ の Box を頭に置く横並びの行。デスクトップの行は既定で縦の真ん中にそろうので、上にそろえる。
+    const rows = (await ui.findAll({ type: 'Box' })).filter(box => {
+      const [head] = box.children as Drawn[]
+      return head?.type === 'Box' && textOf(head) === '⏺'
+    })
+    expect(rows.length, surface).toBe(1)
+    expect(rows[0]?.props.alignItems, surface).toBe('flex-start')
+    await ui.unmount()
+  }
+})
+
 test('on the desktop a short Japanese run between numbers is not its own Text, so it wraps to the full width', async $ => {
   type Drawn = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
   // デスクトップは、子が空白を含まない 24 字以下の文字列だけの Text を 1 語と見て折り返さない（white-space:pre）。

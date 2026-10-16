@@ -64,6 +64,9 @@ test('expanded shell rows color the command and show stdout and stderr', async (
   expect(await row.find({ type: 'Text', text: /^"a\/b"$/ })).toBeDefined()
   expect(await row.find({ type: 'Text', text: /^in_progress$/ })).toBeDefined()
   expect(await row.find({ type: 'Text', text: /^warn$/ })).toBeDefined()
+  // ● は複数行のコマンド・出力の 1 行目にそろえる（デスクトップの行は既定で縦の真ん中にそろう）
+  const dotRow = (await row.findAll({ type: 'Box' })).find(box => box.props.flexDirection === 'row')
+  expect(dotRow?.props.alignItems).toBe('flex-start')
   await row.unmount()
 })
 
