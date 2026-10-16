@@ -30,6 +30,7 @@ Claude Code プラグイン（function hooks）。
   `sequenceDiagram` と `xychart-beta` は同梱の beautiful-mermaid の SVG、flowchart などは端末用の罫線の図の格子を、線は線分・文字はマスの位置に置いた SVG にする
   （beautiful-mermaid の flowchart の SVG は配置に elkjs（EPL-2.0）を使うので同梱しない）。SVG にできない図は標準のコードブロックのまま出す。
   外部のフォントは読みに行かない。コピーのボタン（ソース・図）は端末と同じ（`hooks/mermaid-svg.ts`）
+- 箇条書きの `•` と引用の `│` は、折り返した項目の 1 行目にそろえる（デスクトップの行は既定で縦の真ん中にそろい、印が項目の途中に出るため）
 
 ボタン・トースト・コマンドの返事・`/config` の項目名は日本語にした。ツール行の動詞（`Ran` `Read` `Edited`）と
 ターンの終わりの行は、Claude Code 自身の表示に合わせて英語のまま。
@@ -415,7 +416,8 @@ macOS 以外（文字だけ）では次の mrkdwn が入る:
 | Apple の「ターミナル」など OSC 8 を描けない端末 | 未確認 | リンクの後ろに URL が薄字で付く（上の WARNING）。テーマの色は 24bit 色で、出せない端末では近い色になるはず（Claude Code 任せ） |
 | tmux の中 | 未確認 | リンクが外の端末まで届くかは tmux の設定次第 |
 | 罫線を 2 桁で描く設定の端末 | 未対応 | 表・コードの枠・Mermaid の図の桁がずれる（推測）。罫線の無いフォントには `mermaidAscii` がある |
-| デスクトップアプリ・VS Code 拡張・モバイル | 未確認 | 返事・ツール行・コマンドの出力は表示面を問わず描き直し、リンクと開くボタンだけ出さない（本家と同じ）。ターンの終わりの行は terminal でしか描かれない。テストは terminal と desktop の両方で描き、desktop でリンクとボタンが出ないことを見ている。VS Code 拡張・モバイルはテストも無い |
+| デスクトップアプリ（Code タブ） | 一部確認 | macOS で表・箇条書き・見出し・コピーのボタンが描かれることを見た。0.4.1 の箇条書き・引用の印の位置は実機で見ていない。以下は VS Code 拡張・モバイルと同じ |
+| VS Code 拡張・モバイル | 未確認 | 返事・ツール行・コマンドの出力は表示面を問わず描き直し、リンクと開くボタンだけ出さない（本家と同じ）。ターンの終わりの行は terminal でしか描かれない。テストは terminal と desktop の両方で描き、desktop でリンクとボタンが出ないことを見ている。VS Code 拡張・モバイルはテストも無い |
 | `claude -p`・SDK | 未対応 | 描かない（Claude Code が描かないため）。`diagramHints` `dangerHints` の注記も付けない（送り元が端末の入力欄か Remote Control のときだけ付ける。コードでそうしている） |
 
 ### OS と開き方
@@ -488,7 +490,7 @@ LICENSE THIRD_PARTY_NOTICES.md  本家の MIT ライセンスと同梱物の表�
 ## テスト・確認
 
 ```sh
-claude plugin test plugins/reply-prism                 # 全 7 ファイル・230 件（本家のテストと、足した機能のテスト）
+claude plugin test plugins/reply-prism                 # 全 7 ファイル・244 件（本家のテストと、足した機能のテスト）
 claude plugin validate plugins/reply-prism --strict
 ```
 

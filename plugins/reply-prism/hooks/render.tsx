@@ -572,14 +572,14 @@ const renderQuote = (el: ElementTable, style: Style, block: Extract<Block, { kin
   const rtl = flowOf(style, block.inline, columns - 2)
   if (rtl?.base === 'R') {
     return (
-      <Box key={key} flexDirection="row" justifyContent="flex-end">
+      <Box key={key} flexDirection="row" justifyContent="flex-end" alignItems="flex-start">
         <Box flexDirection="column" alignItems="flex-end">{renderFlow(el, style, rtl.lines, key, { italic: true, color: t.quote })}</Box>
         <Text color={t.accent}> │</Text>
       </Box>
     )
   }
   return (
-    <Box key={key} flexDirection="row">
+    <Box key={key} flexDirection="row" alignItems="flex-start">
       <Text color={t.accent}>│ </Text>
       <Text italic color={t.quote}>{renderInline(el, style, rtl ? rtl.lines[0]! : block.inline, key)}</Text>
     </Box>
@@ -619,14 +619,15 @@ const renderList = (el: ElementTable, style: Style, block: Extract<Block, { kind
         const rtl = flowOf(style, item.inline, columns - item.depth * 2 - 2)
         if (rtl?.base === 'R') {
           return (
-            <Box key={k} flexDirection="row" justifyContent="flex-end" paddingRight={item.depth * 2}>
+            <Box key={k} flexDirection="row" justifyContent="flex-end" alignItems="flex-start" paddingRight={item.depth * 2}>
               <Box flexDirection="column" alignItems="flex-end">{renderFlow(el, style, rtl.lines, k)}</Box>
               <Text color={t.bullet}>{` ${glyph}`}</Text>
             </Box>
           )
         }
+        // 印は折り返した項目の 1 行目にそろえる（デスクトップの行は既定で縦の真ん中にそろうため）。
         return (
-          <Box key={k} flexDirection="row" paddingLeft={item.depth * 2}>
+          <Box key={k} flexDirection="row" alignItems="flex-start" paddingLeft={item.depth * 2}>
             <Text color={t.bullet}>{`${glyph} `}</Text>
             <Text>{renderInline(el, style, rtl ? rtl.lines[0]! : item.inline, k)}</Text>
           </Box>

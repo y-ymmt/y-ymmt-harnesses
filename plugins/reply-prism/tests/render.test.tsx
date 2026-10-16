@@ -237,6 +237,23 @@ test('file tools show the path in the path color and failures say so', async $ =
   await desktop.unmount()
 })
 
+test('a list item and a quote keep their mark on the first line of a wrapped item (terminal and desktop)', async $ => {
+  type Drawn = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+  const textOf = (node: unknown): string =>
+    typeof node === 'string' ? node : ((node as Drawn | undefined)?.children ?? []).map(textOf).join('')
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...draw('- 一つ目の項目は長いので折り返す\n- 二つ目\n\n> 引用も長いので折り返す'), surface })
+    // 印（• や │）の Text を頭に置く横並びの行。デスクトップの行は既定で縦の真ん中にそろうので、上にそろえる。
+    const marked = (await ui.findAll({ type: 'Box' })).filter(box => {
+      const [head] = box.children as Drawn[]
+      return head?.type === 'Text' && /^(• |│ )$/.test(textOf(head))
+    })
+    expect(marked.length, surface).toBe(3)
+    for (const box of marked) expect(box.props.alignItems, `${surface}: ${textOf(box)}`).toBe('flex-start')
+    await ui.unmount()
+  }
+})
+
 test('desktopTheme picks the desktop palette; same follows theme; the terminal keeps theme', { options: { theme: 'tokyo-night', desktopTheme: 'solarized-light' } }, async $ => {
   for (const [surface, preset] of [['terminal', 'tokyo-night'], ['desktop', 'solarized-light']] as const) {
     const ui = await $.ui.mount({ ...draw('残り 42 件'), surface })
