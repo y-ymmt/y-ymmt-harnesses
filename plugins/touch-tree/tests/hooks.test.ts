@@ -5,7 +5,7 @@
  */
 import { beforeAll, describe, expect, test } from 'bun:test'
 
-import { FLUSH_MS, MAX_ROWS, OPEN_PREFIX, PANE, register } from '../hooks/hooks'
+import { COLORS, FLUSH_MS, MAX_ROWS, OPEN_PREFIX, PANE, register } from '../hooks/hooks'
 import { textWidth } from '../hooks/tree'
 import type { TouchTreeRecord } from '../types'
 
@@ -191,12 +191,12 @@ class Process {
     return this.state.get('touch-tree.record') as TouchTreeRecord
   }
 
-  async pane(columns: number): Promise<Node> {
+  async pane(columns: number, surface: 'terminal' | 'desktop' | null = 'terminal'): Promise<Node> {
     this.isRendering = true
 
     try {
       return (await this.emit('ui.render', {
-        surface: 'terminal',
+        surface,
         component: 'Pane',
         requestId: PANE,
         viewport: { columns: columns * 3, rows: 40 },
@@ -211,8 +211,8 @@ class Process {
 /** 木の中の文字列をすべてつなげたもの。 */
 function textOf(node: Node): string {
   if (typeof node === 'string') return node
-  // ファイル名はボタンの label に入っている。
-  if (node.type === 'Button') return String(node.props['label'] ?? '')
+  // ファイル名はボタンの子の Text に入っている（label を持つボタンは label）。
+  if (node.type === 'Button' && node.children.length === 0) return String(node.props['label'] ?? '')
 
   return node.children.map(textOf).join('')
 }
@@ -227,12 +227,12 @@ function flatten(node: Node): Element[] {
  *
  * - 要素は Box・Text・Button だけ
  * - Text の color は `#RRGGBB` かテーマの色の名前（`userMessageBackground` など）の文字列、子は文字列か Text、1 つの文字列は 1 万文字まで
- * - Box の子は要素（裸の文字列は不可）、Button は子を持たず key・label・onPress がある
+ * - Box の子は要素（裸の文字列は不可）、Button は key と onPress があり、label か子（文字列・Text）のどちらかで字を持つ
  * - bold・dimColor・underline は boolean
  */
 function invalidReasonOf(node: Node, parent: string | null = null): string {
   if (typeof node === 'string') {
-    if (parent !== 'Text' && parent !== 'Link') return `文字列が ${parent ?? '根'} の直下にある`
+    if (parent !== 'Text' && parent !== 'Link' && parent !== 'Button') return `文字列が ${parent ?? '根'} の直下にある`
     return node.length > 10_000 ? `Text が ${node.length} 文字` : ''
   }
 
@@ -240,11 +240,11 @@ function invalidReasonOf(node: Node, parent: string | null = null): string {
   if (parent === 'Text' && node.type !== 'Text') return `Text の中に ${node.type}`
   if (parent === 'Link' && node.type !== 'Text') return `Link の中に ${node.type}`
   if (node.type === 'Link' && (typeof node.props['href'] !== 'string' || node.props['href'] === '')) return 'Link に href が無い'
-  if (parent === 'Button') return 'Button に子がある'
+  if (parent === 'Button' && node.type !== 'Text') return `Button の中に ${node.type}`
 
   if (node.type === 'Button') {
-    if (node.children.length > 0) return 'Button に子がある'
-    if (typeof node.props['key'] !== 'string' || typeof node.props['label'] !== 'string') return 'Button に key か label が無い'
+    if (typeof node.props['key'] !== 'string') return 'Button に key が無い'
+    if (node.children.length === 0 && typeof node.props['label'] !== 'string') return 'Button に label も子も無い'
     if (typeof node.props['onPress'] !== 'function') return 'Button に onPress が無い'
   }
 
@@ -317,8 +317,15 @@ describe('記録と描画', () => {
 
     expect(invalidReasonOf(drawn)).toBe('')
     expect(opensOf(drawn).length, 'ファイルの 1 行だけ').toBe(1)
-    expect(button?.props['label']).toBe('ApiController.java')
+    expect(textOf(button!)).toBe('ApiController.java')
     expect(button?.props['plain']).toBe(true)
+    // 2.1.295 から: 字は子の Text で、状態の色（書いた = 橙）と最後に触ったファイルの太字・下線を持つ。
+    const [text] = button!.children as Element[]
+
+    expect(text?.type).toBe('Text')
+    expect(text?.props['color']).toBe(COLORS.edited)
+    expect(text?.props['bold']).toBe(true)
+    expect(text?.props['underline']).toBe(true)
 
     await pressOpen(proc, FILE)
     expect(proc.runs, '既定は VS Code の URL を open で開く').toEqual([['open', `vscode://file${encodeURI(FILE)}`]])
@@ -521,6 +528,77 @@ describe('ボタンの見た目', () => {
     expect(buttons.length).toBeGreaterThanOrEqual(3)
     expect(chips).toHaveLength(buttons.length)
     for (const box of chips) expect(box.props['backgroundColor']).toBe('#4b5470')
+  })
+})
+
+describe('デスクトップ', () => {
+  const band = (proc: Process, surface: string | null, beneath: unknown = { type: 'engine', props: {}, children: [] }) =>
+    proc.emit(
+      'ui.render',
+      {
+        surface,
+        component: 'AbovePrompt',
+        requestId: 'band',
+        props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 19 } },
+      },
+      () => beneath,
+    ) as Promise<Node>
+
+  test('帯に開け閉めボタンが出る（背景チップなし）。surface が null なら今までどおり描かない', async () => {
+    const proc = new Process(FILES)
+
+    await proc.sessionStart()
+
+    const drawn = await band(proc, 'desktop')
+    const buttons = flatten(drawn).filter(el => el.type === 'Button')
+
+    expect(buttons.map(b => b.props['label'])).toEqual(['touch-tree を開く'])
+    expect(flatten(drawn).some(el => el.props['backgroundColor'] !== undefined)).toBe(false)
+
+    const none = await band(proc, null)
+
+    expect(flatten(none).filter(el => el.type === 'Button')).toHaveLength(0)
+
+    await proc.emit('ui.press', { plugin: 'touch-tree', element: 'touch-tree-toggle', component: 'AbovePrompt', requestId: 'band', surface: 'desktop' })
+    expect(proc.opened).toEqual([PANE])
+  })
+
+  test('ペインは罫線・右寄せ・切り詰めを使わず、字下げと名前の後ろの補足で描く', async () => {
+    const proc = new Process(FILES)
+
+    await proc.sessionStart()
+    await proc.tool({ tool: 'Read', file_path: `${JAVA}/web/ApiController.java` }, readResult(1, 10, 500))
+    await proc.tool({ tool: 'Edit', file_path: `${JAVA}/batch/Imports.java` }, { result: {}, text: '' })
+    await proc.advance(FLUSH_MS)
+
+    const drawn = await proc.pane(16, 'desktop')
+    const text = textOf(drawn)
+    const all = flatten(drawn)
+
+    expect(invalidReasonOf(drawn)).toBe('')
+    for (const mark of ['─', '│', '├', '└', '…']) expect(text, mark).not.toContain(mark)
+    expect(all.some(el => el.props['wrap'] === 'truncate-end')).toBe(false)
+    expect(all.some(el => el.props['backgroundColor'] !== undefined)).toBe(false)
+    expect(text).toContain('ApiController.java')
+    expect(text).toContain('1-10/500')
+
+    // ファイルの行は押せるボタン、補足は名前の後ろ、深さは字下げ
+    const rows = all.filter(el => el.type === 'Box' && String(el.props['key'] ?? '').startsWith('row-'))
+    const file = rows.find(r => textOf(r).includes('ApiController.java'))
+
+    expect(file && flatten(file).some(el => el.type === 'Button')).toBe(true)
+    expect(file && textOf(file).indexOf('ApiController.java') < textOf(file).indexOf('1-10/500')).toBe(true)
+    expect(Number(file?.props['paddingLeft'])).toBeGreaterThan(Number(rows[0]?.props['paddingLeft']))
+  })
+
+  test('ペインの開閉ボタンの押下は端末と同じ処理になる', async () => {
+    const proc = new Process(FILES)
+
+    await proc.sessionStart()
+    await proc.tool({ tool: 'Read', file_path: `${ROOT}/pom.xml` }, readResult(1, 5, 5))
+    await proc.advance(FLUSH_MS)
+    await proc.emit('ui.press', { plugin: 'touch-tree', element: 'clear', component: 'Pane', requestId: PANE, surface: 'desktop' })
+    expect(Object.keys(proc.record().files)).toHaveLength(0)
   })
 })
 

@@ -435,7 +435,11 @@ export const register: Register = (on, options) => {
     // 帯の開け閉めボタン。開いていれば閉じ、閉じていれば開く。
     if (e.plugin === PLUGIN && e.component === 'AbovePrompt' && e.element === TOGGLE_BUTTON) {
       if (isPaneOpen) await closePane($)
-      else await openPane($)
+      else {
+        const reason = await openPane($)
+
+        if (reason !== '') $.ui.toast(`touch-tree: ペインを置けませんでした（${reason}）`, { timeoutMs: 5_000 })
+      }
     }
 
     return next(e)
@@ -456,9 +460,58 @@ export const register: Register = (on, options) => {
     const columns = Math.max(10, e.props.bodyColumns || e.viewport?.columns || 40)
     const forest = forestOf(record, showHits)
     const rows = rowsOf(forest, record.last)
-    const shown = rows.slice(0, MAX_ROWS).map(row => fitRow(row, columns))
     const counts = countKinds(record.files)
     const legend = LEGEND.filter(item => counts[item.kind] > 0)
+
+    // デスクトップは文字幅が一定でないので、桁合わせ（罫線・右寄せ・`…` で切る幅計算）は使わず、
+    // 字下げと名前の後ろに並べる補足で描く。ボタンはネイティブなので背景チップも敷かない。
+    if (e.surface === 'desktop') {
+      return (
+        <Box flexDirection="column">
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {legend.length === 0 ? (
+              <Text dimColor>まだ何も触っていません</Text>
+            ) : (
+              legend.map(item => (
+                <Text color={COLORS[item.kind]}>{`${SYMBOLS[item.kind]}${item.label} ${counts[item.kind]}`}</Text>
+              ))
+            )}
+          </Box>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+            <Button key="hits" label={showHits ? '検索のみを隠す' : '検索のみも出す'} onPress={() => undefined} />
+            <Button key="clear" label="クリア" onPress={() => undefined} />
+          </Box>
+          {forest.hidden > 0 && <Text dimColor>{`検索に出ただけの ${forest.hidden} 件を隠しています`}</Text>}
+          {rows.slice(0, MAX_ROWS).map((row, index) => {
+            const color = row.kind === 'file' && row.state !== undefined ? COLORS[row.state] : undefined
+            const symbol = row.kind === 'file' && row.state !== undefined ? `${SYMBOLS[row.state]} ` : ''
+            const canOpen = row.kind === 'file' && editorUrl(editor, row.path) !== null
+            const emphasized = row.isLast === true
+
+            return (
+              <Box key={`row-${index}`} flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={row.guide.length}>
+                {symbol !== '' && <Text color={color}>{symbol}</Text>}
+                {canOpen ? (
+                  <Button key={`${OPEN_PREFIX}${row.path}`} plain onPress={() => undefined}>
+                    <Text color={color} bold={emphasized} underline={emphasized}>
+                      {row.name}
+                    </Text>
+                  </Button>
+                ) : (
+                  <Text color={color} bold={row.kind !== 'file' || emphasized} underline={emphasized}>
+                    {row.name}
+                  </Text>
+                )}
+                {row.meta !== '' && <Text dimColor>{row.meta}</Text>}
+              </Box>
+            )
+          })}
+          {rows.length > MAX_ROWS && <Text dimColor>{`… ほか ${rows.length - MAX_ROWS} 行`}</Text>}
+        </Box>
+      )
+    }
+
+    const shown = rows.slice(0, MAX_ROWS).map(row => fitRow(row, columns))
 
     return (
       <Box flexDirection="column">
@@ -485,7 +538,10 @@ export const register: Register = (on, options) => {
           const color = row.kind === 'file' && row.state !== undefined ? COLORS[row.state] : undefined
           // ファイルの行は押すとエディタで開くボタンにする（フォルダは開くと新しいウィンドウになりがちなので、しない）。
           // 全画面の端末ではリンクのクリックをアプリが受け取ってしまい開かないので、Link ではなく Button で自分で開く。
-          // ボタンの文字には色を付けられないので、状態の色は先頭の記号で見分ける。
+          // touch-tree: Claude Code 2.1.295 から Button の子に Text（色・太字・下線）を置けるので、状態の色と
+          // 最後に触ったファイルの太字・下線を、ボタンの字にも戻す（記号の色と同じ）。ボタンは key を持たせて
+          // 字が変わっても押下先の名前が変わらないようにする。押せることは、チップの背景（CHIP_BACK）を
+          // 引き続き敷くことで示す。字に色が戻ってもホバー・フォーカスの反転は変わらない。
           const canOpen = row.kind === 'file' && editorUrl(editor, row.path) !== null
 
           return (
@@ -495,7 +551,11 @@ export const register: Register = (on, options) => {
               <Box flexGrow={1} flexShrink={1} minWidth={0}>
                 {canOpen ? (
                   <Box key={`${OPEN_PREFIX}${row.path}.chip`} flexShrink={1} minWidth={0} backgroundColor={CHIP_BACK}>
-                    <Button key={`${OPEN_PREFIX}${row.path}`} label={row.name} plain dimColor={row.state === 'hit'} onPress={() => undefined} />
+                    <Button key={`${OPEN_PREFIX}${row.path}`} plain onPress={() => undefined}>
+                      <Text color={color} bold={row.isLast === true} underline={row.isLast === true} wrap="truncate-end">
+                        {row.name}
+                      </Text>
+                    </Button>
                   </Box>
                 ) : (
                   <Text color={color} bold={row.kind !== 'file' || row.isLast === true} underline={row.isLast === true} wrap="truncate-end">
@@ -520,19 +580,29 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const beneath = await next(e)
 
-    if (e.surface !== 'terminal' || e.props.hasSurvey || e.props.maxRows < 2) return beneath
+    // desktop の maxRows は端末の行数の意味を持たないので、行数で諦めるのは端末だけ（next-prompts と同じ）
+    const isDesktop = e.surface === 'desktop'
+    if ((e.surface !== 'terminal' && !isDesktop) || e.props.hasSurvey || (!isDesktop && e.props.maxRows < 2)) return beneath
 
     const { Box, Button } = $.ui.resolve(e)
+    const toggle = (
+      <Button
+        key={TOGGLE_BUTTON}
+        label={isPaneOpen ? 'touch-tree を閉じる' : 'touch-tree を開く'}
+        dimColor
+        onPress={() => undefined}
+      />
+    )
+    // デスクトップのボタンはネイティブ（自前の枠・背景がある）ので、端末用の背景チップは敷かない。
     const button = (
       <Box key={slotKey(BAND_ORDER.touchTreeToggle, 'touch-tree')} flexDirection="row">
-        <Box key={`${TOGGLE_BUTTON}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
-          <Button
-            key={TOGGLE_BUTTON}
-            label={isPaneOpen ? 'touch-tree を閉じる' : 'touch-tree を開く'}
-            dimColor
-            onPress={() => undefined}
-          />
-        </Box>
+        {e.surface === 'desktop' ? (
+          toggle
+        ) : (
+          <Box key={`${TOGGLE_BUTTON}.chip`} flexShrink={0} backgroundColor={CHIP_BACK}>
+            {toggle}
+          </Box>
+        )}
       </Box>
     )
 
