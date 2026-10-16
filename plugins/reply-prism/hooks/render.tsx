@@ -799,6 +799,8 @@ export const renderToolRow = (el: ElementTable, style: Style, row: ToolRow): Ren
   )
 
   // reply-prism: 端末ではファイルのパスを押して開くボタンにする（全画面表示ではリンクのクリックが届かないため）。
+  // Claude Code 2.1.295 から Button の子に Text（色つき）を置けるので、パスはボタンにしてもパスの色（t.path）のまま出す。
+  // 色が戻っても、押せることはチップの背景（chip）とホバー・フォーカスの反転で分かる。key は子の字（パス）と別に付ける。
   const open = target !== undefined && isPath && isFileTool ? style.fileTargets?.(target, true) : undefined
   if (target !== undefined && open) {
     return (
@@ -807,7 +809,7 @@ export const renderToolRow = (el: ElementTable, style: Style, row: ToolRow): Ren
         <Text bold>{verb}</Text>
         <Text> </Text>
         <Box flexShrink={1} minWidth={0}>
-          {chip(el, style, openKey(open), <Button key={openKey(open)} plain label={target} onPress={() => undefined} />)}
+          {chip(el, style, openKey(open), <Button key={openKey(open)} plain onPress={() => undefined}><Text color={t.path}>{target}</Text></Button>)}
         </Box>
         {status ? <Text wrap="truncate-end">{status}</Text> : null}
       </Box>
