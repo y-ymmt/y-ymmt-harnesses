@@ -409,7 +409,23 @@ describe('スピナーの木', () => {
     expect(rowsOf(await proc.spinner())[1], 'message が無ければ word').toBe('Sauteing')
   })
 
-  test('サブエージェントの画面・ターン外・terminal 以外のスピナーは素通し', async () => {
+  test('desktop ではターン数と元の文言を Box と Text だけで描く', async () => {
+    const proc = new Process('session-desktop')
+
+    await proc.sessionStart()
+    await proc.turnStart()
+
+    const drawn = await proc.spinner({
+      surface: 'desktop',
+      props: { word: 'Creating notes.md', message: null, suffix: '…', mode: 'tool-use' },
+    })
+
+    expect(invalidReasonOf(drawn)).toBe('')
+    expect(flatten(drawn).every(element => element.type === 'Box' || element.type === 'Text')).toBe(true)
+    expect(rowsOf(drawn)).toEqual(['ターン 1', 'Creating notes.md'])
+  })
+
+  test('サブエージェントの画面・ターン外・terminal・desktop 以外のスピナーは素通し', async () => {
     const proc = new Process('session-s')
 
     await proc.sessionStart()
@@ -418,7 +434,11 @@ describe('スピナーの木', () => {
     await proc.turnStart()
     await proc.spawn('agent-1')
     expect(await proc.spinner({ requestId: 'agent-1' }), 'サブエージェント').toBe(CORE_SPINNER)
-    expect(await proc.spinner({ surface: 'desktop' }), 'desktop').toBe(CORE_SPINNER)
+    for (const surface of ['mobile', 'vscode']) {
+      expect(await proc.spinner({ surface }), surface).toBe(CORE_SPINNER)
+    }
+    expect(await proc.spinner({ surface: 'desktop', requestId: 'agent-1' }), 'desktop のサブエージェント').toBe(CORE_SPINNER)
+    expect(await proc.spinner({ surface: null }), 'surface なし').toBe(CORE_SPINNER)
     expect(await proc.spinner(), 'メインは差し替える').not.toBe(CORE_SPINNER)
 
     await proc.turnComplete()

@@ -133,7 +133,7 @@ async function ignite($: EngineInterface, zawa: Zawa, flash: Flash): Promise<num
 /**
  * ざわ・・ざわ・・。
  *
- * - `Spinner`（terminal）を、このセッションのターン数（`ターン 12`）＋元の文言（薄字）に
+ * - `Spinner`（terminal・desktop）を、このセッションのターン数（`ターン 12`）＋元の文言（薄字）に
  *   差し替える
  * - ツールが拒否されたら「ざわっ！」を数秒だけ、ターン数の
  *   代わりに出す
@@ -217,9 +217,10 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    // サブエージェントの画面のスピナーは素のまま。
+    // サブエージェントの画面のスピナーと、terminal・desktop 以外の surface は素のまま。
+    // desktop は文字幅が一定でないので、桁数での幅合わせはしない（Box と Text だけで描く）。
     if (
-      e.surface !== 'terminal' ||
+      (e.surface !== 'terminal' && e.surface !== 'desktop') ||
       !isMainSpinner({
         requestId: e.requestId,
         isTurnRunning: zawa.isTurnRunning,
@@ -237,8 +238,9 @@ export const register: Register = on => {
     const subtitle = (e.props.message ?? e.props.word ?? '').replace(/\s+/g, ' ').trim()
 
     // 上にターン数（ざわっ！の最中はその一言）、下に元の spinner 文言。
+    // desktop の行は 1 行ぶんの高さしかなく 2 行目が切れるので、横に並べる。
     return (
-      <Box flexDirection="column">
+      <Box flexDirection={e.surface === 'desktop' ? 'row' : 'column'} columnGap={e.surface === 'desktop' ? 1 : 0}>
         <Text color={shown?.color ?? CLAUDE_ORANGE} bold={shown?.bold ?? false}>
           {shown?.text ?? turnTextOf(zawa.turn)}
         </Text>

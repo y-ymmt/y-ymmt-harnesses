@@ -45,7 +45,7 @@ Sauteing
 - サブエージェントの画面のスピナー（`agent.spawn` で覚えたエージェント id と、
   メインのターンが走っているかで見分ける）
 - ターンが走っていないあいだのスピナー
-- terminal 以外の surface（Claude Desktop など）
+- terminal・デスクトップアプリ以外の surface（VS Code 拡張・モバイルなど）
 
 ## 使い方
 
@@ -69,11 +69,12 @@ claude plugin disable turn-counter@y-ymmt-harnesses
 | 全画面表示でない端末（main screen） | たぶん動く | スピナーは表示の形に依らず `Spinner` で描かれる。実機では見ていない |
 | 他の端末（Apple の「ターミナル」・iTerm2・VS Code の端末・Windows Terminal など） | たぶん動く | 使うのは文字・色・太字だけ。`#D97757` は 24bit 色で、出せない端末では近い色になるはず（Claude Code 任せ） |
 | Linux・Windows | たぶん動く | OS に依るコード（パス・外部コマンド）が無い。実機では見ていない |
-| デスクトップアプリ・VS Code 拡張・モバイル | 未対応 | `e.surface !== 'terminal'` のときは素のスピナーのまま（コードでそうしている。テストで確認） |
+| デスクトップアプリ | 確認済み | `Spinner` は desktop でも呼ばれる（型の doc）。desktop の行は 1 行ぶんの高さしかないので、ターン数と元の文言（薄字）を横に並べる（端末は 2 行）。macOS のデスクトップアプリで見た |
+| VS Code 拡張・モバイル | 未対応 | `Spinner` が呼ばれないので何も変わらない（コードでも terminal・desktop 以外は素のまま。テストで確認） |
 | `claude -p`・SDK | 未対応 | スピナーが描かれないので何も変わらない。ターン数は `$.store` に数える |
 | 英語など日本語以外の表示 | 未対応 | `ターン 12` と `ざわっ！` は日本語で固定 |
 
-- テスト（`tests/hooks.test.ts`）は偽の `$` で、数え方・サブエージェントの見分け・terminal 以外で差し替えないことを見ている。
+- テスト（`tests/hooks.test.ts`）は偽の `$` で、数え方・サブエージェントの見分け・terminal・desktop 以外で差し替えないことを見ている。
   実際の描画（色・幅）はテストでは見ていない
 - 拒否の拾い方のうち、結果の文に `permission` を含むかで見る分は、Claude Code の英語の文言に頼っている。文言が変わると拾えなくなる
 
