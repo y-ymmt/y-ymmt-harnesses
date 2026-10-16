@@ -2,7 +2,7 @@
 // hooks/index.tsx を元にした改変版。本家のコメントは英語のまま残し、足した・変えた所に日本語のコメントを付けている。
 import type { EngineInterface, Register, RenderSurface, Timer } from 'claude-code'
 import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from './band'
-import { EDITING_TOOLS, KIND_COLORS, KIND_WORDS, MARK, REJECTED, STRIP, USAGE, commandRowText, helpText, holds, isCommandText, isSlashCommand, kindOf, slashName, type Kind } from './trail'
+import { DESKTOP_STRIP, EDITING_TOOLS, KIND_COLORS, KIND_WORDS, MARK, REJECTED, STRIP, USAGE, commandRowText, helpText, holds, isCommandText, isSlashCommand, kindOf, slashName, type Kind } from './trail'
 
 const PLUGIN = 'prompt-trail'
 const PANE = 'prompt-trail'
@@ -1987,14 +1987,18 @@ export const register: Register = (on, options) => {
         ]
       }
       // prompt-trail: 棒と同じ桁に置く、ターンの結果の色の 1 マス。ホバーするとその棒も灯る（同じ組）。
+      // デスクトップは `▀` を反転すると黒い塊になるので、点（DESKTOP_STRIP）にして反転しない（棒の反転で足りる）。
       const stripCell = (i: number) => {
         const kind = kindAt(i)
-        return kind ? (
+        if (!kind) return <Text key={`kind-${i}`}> </Text>
+        return isCellGrid ? (
           <Text key={`kind-${i}`} color={KIND_COLORS[kind]} hover={{ scope: `prompt-trail-${i}`, inverse: true }}>
             {STRIP}
           </Text>
         ) : (
-          <Text key={`kind-${i}`}> </Text>
+          <Text key={`kind-${i}`} color={KIND_COLORS[kind]}>
+            {DESKTOP_STRIP}
+          </Text>
         )
       }
       const bars = [
@@ -2012,7 +2016,18 @@ export const register: Register = (on, options) => {
               onPress={() => {}}
             />
           )
-          if (!isCellGrid) return jump
+          // デスクトップの棒はネイティブのボタンで、字幅も枠も端末の 1 マスとは違う。色の印を別の行に並べると棒の下から
+          // ずれるので、棒ごとの Box に棒と印を縦に積み、印を棒の真ん中に置く。
+          if (!isCellGrid) {
+            return isColored ? (
+              <Box key={`bar-${i}`} flexDirection="column" alignItems="center">
+                {jump}
+                {stripCell(i)}
+              </Box>
+            ) : (
+              jump
+            )
+          }
           // prompt-trail: 端末では棒ごとに key 付きの Box（棒と、その下の色の 1 マス）を作り、そのカードを Box の中に
           // 絶対配置で置く（文字の行へ 1 行上げ、行の左端まで戻す）。カードは key の無い Box で、ホバーは組（scope）でなく
           // いちばん近い key 付きの Box（この棒の Box）に付く。絶対配置の Box の上のポインタは親の上と数えられるので、
@@ -2031,13 +2046,6 @@ export const register: Register = (on, options) => {
         }),
         hidesAfter ? <Text dimColor>›</Text> : null,
       ]
-      // デスクトップでは色の 1 マスを棒の下の行に並べる（端末では棒の Box の中）。
-      const strip = isColored ? (
-        <Box flexDirection="row">
-          {isOverflowing ? <Text key="kind-left"> </Text> : null}
-          {shown.map((_, offset) => stripCell(first + offset))}
-        </Box>
-      ) : null
       if (!isCellGrid) {
         // Each bar and mark a cell wide, then a gap.
         const room = width - (isOverflowing ? barCells : entries.length) - 1
@@ -2050,14 +2058,14 @@ export const register: Register = (on, options) => {
                 </Box>
               ))}
             </Box>
-            <Box flexDirection="row">
+            {/* 棒の Box は印の分だけ背が高いので、横の文は上（棒の行）にそろえる。 */}
+            <Box flexDirection="row" alignItems="flex-start">
               {bars}
               {/* With no prompt known on screen, the newest: bars alone read as a broken rail. */}
               <Box marginLeft={1}>
                 <Text dimColor wrap="truncate-end">{label(center, room)}</Text>
               </Box>
             </Box>
-            {strip}
           </Box>,
         )
       }

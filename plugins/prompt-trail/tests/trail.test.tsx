@@ -2,7 +2,7 @@
 import { describe, expect, mock, test, type FoundElement } from 'claude-code/testing'
 import { BAND_ORDER, BAND_STACK, slotKey, stackBand } from '../hooks/band.ts'
 import { bindCommandRows, firstReplies, indexOfElement, indexRows, jumpTargets, pickPrompt, turnLine } from '../hooks/index.tsx'
-import { KIND_COLORS, KIND_ORDER, MARK, STRIP, fold, helpText, commandRowText, holds, isCommandText, isSlashCommand, kindOf, slashName } from '../hooks/trail.ts'
+import { DESKTOP_STRIP, KIND_COLORS, KIND_ORDER, MARK, STRIP, fold, helpText, commandRowText, holds, isCommandText, isSlashCommand, kindOf, slashName } from '../hooks/trail.ts'
 
 const PLUGIN = 'prompt-trail'
 type Entry = { id: string; text: string; command?: true }
@@ -514,6 +514,27 @@ describe('ターンの結果の色分け', () => {
     expect(await card(6)).toBe('#6 fix typo · ツール 1 · 失敗 1')
     expect(await card(7)).toBe('#7 push it · ツール 1 · 拒否 1')
     expect(await card(8)).toBe('#8 again · API エラー')
+  })
+
+  test('帯（デスクトップ）: 色の印は点で、棒ごとの Box に棒と縦に積み、棒の真ん中に置く（反転しない）', async ($, on) => {
+    world(on, OUTCOMES)
+    await resume($)
+    await runCommand($, 'horizontal')
+    const site = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: BAND })
+    expect(await site.findAll({ type: 'Text', text: STRIP }), '端末の ▀ は使わない').toEqual([])
+    const dots = await site.findAll({ type: 'Text', text: DESKTOP_STRIP })
+    expect(dots.map(node => node.props.color)).toEqual(EXPECTED_KINDS.map(kind => KIND_COLORS[kind]))
+    for (const [i] of EXPECTED_KINDS.entries()) {
+      const holder = await site.find({ key: `bar-${i}` })
+      expect(holder?.props).toMatchObject({ flexDirection: 'column', alignItems: 'center' })
+      const [jump, dot] = elementsOf(holder)
+      expect(jump?.type).toBe('Button')
+      expect(dot?.type === 'Text' && textOf(dot)).toBe(DESKTOP_STRIP)
+      expect(dot?.hover, '棒の反転で足りるので、印は反転しない').toBeUndefined()
+    }
+    // 棒の Box は印の分だけ背が高いので、横の「読んでいるプロンプト」の文は棒の行にそろえる。
+    const row = (await site.findAll({ type: 'Box' })).find(box => elementsOf(box).some(child => child.props?.['key'] === 'bar-0'))
+    expect(row?.props.alignItems).toBe('flex-start')
   })
 
   test('走っている間は実行中の色、終わったら結果の色', async ($, on) => {

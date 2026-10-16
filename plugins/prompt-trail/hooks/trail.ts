@@ -82,6 +82,11 @@ export const kindOf = (turn: TurnFacts): Kind => {
 
 /** 色の帯の 1 マス。棒の真下に置く。 */
 export const STRIP = '▀'
+/**
+ * デスクトップアプリで棒の下に置く色の印。字幅が一定でないフォントでは `▀` の高さが行とずれ、ホバーで反転すると
+ * 黒い塊になるので、どのフォントでも小さく真ん中に描かれる点にする。
+ */
+export const DESKTOP_STRIP = '•'
 /** 縦のペインで行の頭に置く色の印。 */
 export const MARK = '▌'
 
