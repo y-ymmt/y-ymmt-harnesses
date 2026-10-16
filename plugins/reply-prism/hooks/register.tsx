@@ -16,7 +16,7 @@ import { PASTEBOARD_ARGV, pasteboardInput } from './clipboard'
 import { chip } from './chip'
 import { DANGER_HINT } from './mark'
 import { parse } from './markdown'
-import { boxArt, fittedMermaid } from './mermaid'
+import { boxArt, fittedMermaid, mermaidFigure } from './mermaid'
 import type { OpenTarget } from './paths'
 import { editorUrl, makeLinker, makeResolver, parseOpenKey, parseUrlKey } from './paths'
 import type { Controls, CopyButton, Drawn } from './render'
@@ -246,6 +246,10 @@ const drawMarkdown = ($: EngineInterface, el: ReturnType<EngineInterface['ui']['
   if (style.mermaid) {
     for (const [i, block] of blocks.entries()) {
       if (block.kind !== 'code' || block.lang.toLowerCase() !== 'mermaid') continue
+      if (style.svgDiagrams && 'Svg' in el) {
+        drawn.set(i, mermaidFigure(el, style, block.lines.join('\n'), columns, `b${i}`))
+        continue
+      }
       const art = fittedMermaid(block.lines.join('\n'), style.mermaidAscii, columns, columns - 2)
       if (art !== null) drawn.set(i, { element: boxArt(el, style, art, `b${i}`), art })
     }
@@ -292,8 +296,8 @@ export const register: Register = (on, options) => {
   if (options.enabled === false) return
   const resolved = resolveStyle(options)
   // 端末以外（デスクトップアプリなど）は白地のことが多いので、配色は `desktopTheme` のものにする。
-  // 表は標準の Markdown で描く（文字の幅がそろわず、文字数で組んだ表は崩れるため）
-  const style: Style = { ...resolved, theme: desktopThemeOf(options), nativeTables: true }
+  // 表は標準の Markdown で、mermaid は SVG で描く（文字の幅がそろわず、文字数で組んだ表や罫線の図は崩れるため）
+  const style: Style = { ...resolved, theme: desktopThemeOf(options), nativeTables: true, svgDiagrams: true }
   const where = { cwd: '', home: '' }
   // パスのリンク（OSC 8）は端末でだけ描く。デスクトップなどは https 以外のリンクを描かないため。
   const terminalStyle: Style = { ...resolved, fileLinks: makeLinker(style.editor, style.editorUrlTemplate, where), fileTargets: makeResolver(style.editor, style.editorUrlTemplate, where) }

@@ -49,6 +49,11 @@ export type Style = {
    * 文字数で列の幅と罫線を決める描き方だと罫線がずれ、表が横にはみ出すため。register.tsx が端末以外で true にする。
    */
   nativeTables?: boolean
+  /**
+   * reply-prism: mermaid を SVG で描くか。デスクトップアプリなど文字ごとに幅の違うフォントで描く表示面では、罫線の図の桁がずれるため。
+   * SVG にできない図は標準のコードブロックのまま出す。register.tsx が端末以外で true にする。
+   */
+  svgDiagrams?: boolean
   /** 「開く:」の行に URL のボタンを出したリンクの番号（URL → 番号）。本文のリンクの後ろに `[番号]` を付けるのに使う。register.tsx が返事ごとに入れる。 */
   linkNumbers?: ReadonlyMap<string, number>
   /** 危ない語。`dangerHighlight` が false なら null。 */

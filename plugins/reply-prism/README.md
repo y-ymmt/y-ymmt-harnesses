@@ -26,6 +26,10 @@ Claude Code プラグイン（function hooks）。
 - 配色: 端末（`theme`）とデスクトップアプリ（`desktopTheme`、既定 `github-light`）で別々に選べる
 - デスクトップアプリなど端末以外では、表を Claude Code 標準の Markdown で描く（文字ごとに幅の違うフォントだと、文字数で組んだ列と罫線がずれ、表が横にはみ出すため）。
   コピーのボタンは表の上に左寄せで残る。並べ替え（⇅）と畳むは端末だけ。表の中の `==…==` は太字にする
+- デスクトップアプリなど端末以外では、Mermaid を SVG で描く（罫線の文字で組んだ図は、文字ごとに幅の違うフォントだと桁がずれて崩れるため）。
+  `sequenceDiagram` と `xychart-beta` は同梱の beautiful-mermaid の SVG、flowchart などは端末用の罫線の図の格子を、線は線分・文字はマスの位置に置いた SVG にする
+  （beautiful-mermaid の flowchart の SVG は配置に elkjs（EPL-2.0）を使うので同梱しない）。SVG にできない図は標準のコードブロックのまま出す。
+  外部のフォントは読みに行かない。コピーのボタン（ソース・図）は端末と同じ（`hooks/mermaid-svg.ts`）
 
 ボタン・トースト・コマンドの返事・`/config` の項目名は日本語にした。ツール行の動詞（`Ran` `Read` `Edited`）と
 ターンの終わりの行は、Claude Code 自身の表示に合わせて英語のまま。
@@ -454,10 +458,11 @@ hooks/markdown.ts            Markdown → ブロック                          
 hooks/theme.ts               設定の読み込み                                        改変（足した設定）
 hooks/help.ts                /reply-prism の画面                                  改変（日本語化・足した機能の見本）
 hooks/presets.ts             テーマ                                               本家のまま
-hooks/mermaid.tsx            Mermaid の図                                         改変（全角文字の幅・縦軸の目盛りに合わせた高さ・図の大きさ・幅に入らない横向きの図を縦にする）
+hooks/mermaid.tsx            Mermaid の図                                         改変（全角文字の幅・縦軸の目盛りに合わせた高さ・図の大きさ・幅に入らない横向きの図を縦にする・デスクトップの SVG）
+hooks/mermaid-svg.ts         デスクトップで描く Mermaid の SVG                     独自
 hooks/chip.tsx               ボタンの下地（常時の背景）                           独自
 hooks/rtl.ts                 右から左                                             改変（注意箇所の節を太字などと同じに扱うだけ）
-hooks/vendor/                Prism・beautiful-mermaid の同梱版                    本家のまま（scripts/ で作り直せる）
+hooks/vendor/                Prism・beautiful-mermaid の同梱版                    本家のまま（scripts/ で作り直せる）。mermaid-svg.js は reply-prism で足した
 hooks/paths.ts               パスの検出・絶対化・エディタの URL・開くボタンの key  独自
 hooks/danger.ts              危ない語の検出                                        独自
 hooks/mark.ts                `==…==` の注意箇所の検出・コピー用に外す・Claude への注記  独自

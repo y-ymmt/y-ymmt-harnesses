@@ -646,7 +646,8 @@ export type RichCopy = { content: () => { html: string; plain: string }; done: s
 export type CopyButton = (text: string | (() => string), key: string, label?: string, done?: string, rich?: RichCopy) => RenderElement | null
 
 export const COPY = '⧉ コピー'
-export type Drawn = Map<number, { element: RenderElement; art: string }>
+/** 描き換えたブロック。art は「⧉ 図」でコピーする罫線の図（無ければソースのコピーだけ）。 */
+export type Drawn = Map<number, { element: RenderElement; art?: string }>
 
 /** 表の上に並べるボタン: 形式ごとのコピーと、開いているときの［畳む］。 */
 const tableButtons = (el: ElementTable, style: Style, block: Extract<Block, { kind: 'table' }>, id: string, b: number, copy?: CopyButton, controls?: Controls): RenderElement | null => {

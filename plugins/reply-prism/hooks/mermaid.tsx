@@ -1,5 +1,6 @@
 import type { ElementTable, RenderElement } from 'claude-code'
 
+import { artSvg, chartSvg } from './mermaid-svg'
 import { remember } from './render'
 import type { Style } from './theme'
 import { renderMermaidAscii, setChartSize } from './vendor/mermaid-text.js'
@@ -168,7 +169,7 @@ const mermaidNarrowText = (source: string, ascii: boolean, columns: number): str
 const LINE = /[─-╿◇]/
 const ARROW = /[►◄▲▼▶◀]/
 
-const paint = (art: string, style: Style): (string | undefined)[][] => {
+export const paint = (art: string, style: Style): (string | undefined)[][] => {
   const t = style.theme
   const grid = art.split('\n').map(l => [...l])
   const cell = (r: number, c: number) => grid[r]?.[c] ?? ''
@@ -244,4 +245,22 @@ export const boxArt = ({ Box, Text }: ElementTable, style: Style, art: string, k
       })}
     </Box>
   )
+}
+
+const svgCache = new Map<string, { svg: ReturnType<typeof chartSvg>; art: string | null }>()
+
+/**
+ * reply-prism: デスクトップアプリなどで描く mermaid（`svgDiagrams` の表示面）。sequenceDiagram と xychart は
+ * beautiful-mermaid の SVG、ほかは罫線の図を SVG にしたもの。どちらもできなければ標準のコードブロックのまま。
+ * art は「⧉ 図」でコピーする罫線の図。
+ */
+export const mermaidFigure = (el: ElementTable, style: Style, source: string, columns: number, key: string): { element: RenderElement; art?: string } => {
+  const { svg, art } = remember(svgCache, `${columns}:${JSON.stringify(style.theme)}:${source}`, () => {
+    // 罫線の図はコピー用にも使うので、SVG を beautiful-mermaid で描けるときも作る。幅に収まらなくても SVG は縮めて出せる
+    const art = fittedMermaid(source, false, columns, columns - 2) ?? mermaidText(source, false, columns)
+    return { svg: chartSvg(source, style) ?? (art === null ? null : artSvg(art, paint(art, style), style)), art }
+  })
+  const alt = `mermaid の図: ${source.split('\n')[0]?.trim() ?? ''}`
+  if (svg !== null && 'Svg' in el) return { element: <el.Svg key={key} source={svg.source} alt={alt} width={svg.width} />, ...(art === null ? {} : { art }) }
+  return { element: <el.Markdown key={key} text={`\`\`\`mermaid\n${source}\n\`\`\``} /> }
 }

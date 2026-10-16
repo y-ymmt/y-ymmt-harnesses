@@ -102,7 +102,7 @@ test('box art from a mermaid mod above is not shell-colored', async $ => {
 const FLOW = 'Flow:\n\n```mermaid\ngraph LR\nA[User] --> B[Gateway]\n```'
 
 test('mermaid draws as colored box art', async $ => {
-  for (const surface of ['terminal', 'desktop'] as const) {
+  for (const surface of ['terminal'] as const) {
     const ui = await $.ui.mount({ ...draw(FLOW), surface })
     const label = await ui.find({ type: 'Text', text: /Gateway/ })
     expect(label).toBeDefined()
@@ -112,6 +112,54 @@ test('mermaid draws as colored box art', async $ => {
     expect(user?.props.color).not.toBe(gateway?.props.color)
     await ui.unmount()
   }
+})
+
+test('on the desktop a flowchart is drawn as SVG from the box art, with both copies kept', async ($, on) => {
+  const copied: string[] = []
+  on('ui.copy', (_, e) => {
+    copied.push(e.text)
+    return { value: { isCopied: true as const } }
+  })
+  const ui = await $.ui.mount({ ...draw(FLOW), surface: 'desktop' })
+  const svg = await ui.find({ type: 'Svg' })
+  const source = String(svg?.props.source)
+  expect(source.startsWith('<svg')).toBe(true)
+  expect(source).toContain('>Gateway</text>')
+  expect(source, '線は線分で描く（罫線の文字を text にしない）').not.toMatch(/[┌┐└┘─│]/)
+  expect(String(svg?.props.alt)).toContain('graph LR')
+  expect(await ui.find({ type: 'Text', text: /Gateway/ }), '罫線の図の Text は描かない').toBeUndefined()
+  const buttons = await ui.findAll({ type: 'Button' })
+  expect(buttons.map(b => b.props.label)).toEqual(['⧉ ソース', '⧉ 図'])
+  for (const b of buttons) await ui.press({ key: b.key! })
+  expect(copied[0]).toBe('graph LR\nA[User] --> B[Gateway]')
+  expect(copied[1]).toContain('┌')
+  await ui.unmount()
+})
+
+test('on the desktop sequence diagrams and charts use the beautiful-mermaid SVG, with no font fetched', async $ => {
+  for (const source of ['sequenceDiagram\n  Browser->>App: GET /cart\n  App-->>Browser: 200', 'xychart-beta\n  x-axis [6月, 7月, 8月]\n  bar [3, 7, 5]']) {
+    const ui = await $.ui.mount({ ...draw(`\`\`\`mermaid\n${source}\n\`\`\``), surface: 'desktop' })
+    const svg = String((await ui.find({ type: 'Svg' }))?.props.source)
+    expect(svg).toMatch(/class="(message|xychart|bar)/)
+    expect(svg).not.toContain('@import')
+    expect(svg).not.toContain('fonts.googleapis.com')
+    await ui.unmount()
+  }
+})
+
+test('on the desktop a Japanese flowchart keeps its labels whole in the SVG', async $ => {
+  const ui = await $.ui.mount({ ...draw('```mermaid\nflowchart TD\n  A[リクエスト受信] --> B[200を返す]\n```'), surface: 'desktop' })
+  const svg = String((await ui.find({ type: 'Svg' }))?.props.source)
+  expect(svg).toContain('>リクエスト受信</text>')
+  expect(svg).toContain('>200を返す</text>')
+  await ui.unmount()
+})
+
+test('on the desktop a diagram that cannot be drawn is left as a standard code block', async $ => {
+  const ui = await $.ui.mount({ ...draw('```mermaid\npie title Pets\n  "Dogs" : 386\n  "Cats" : 85\n```'), surface: 'desktop' })
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  expect(String((await ui.find({ type: 'Markdown' }))?.props.text)).toBe('```mermaid\npie title Pets\n  "Dogs" : 386\n  "Cats" : 85\n```')
+  await ui.unmount()
 })
 
 test('a left-to-right flowchart too wide for the screen is drawn top-down instead of as source', async $ => {

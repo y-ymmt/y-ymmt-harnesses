@@ -100,6 +100,40 @@ track(await build({
   }],
 }))
 
+// reply-prism: デスクトップアプリで描く SVG。sequence と xychart だけ（flowchart・class・er は配置に
+// elkjs（EPL-2.0）を使うので同梱しない。それらは描いた罫線の図の格子から SVG にする）。
+// 入口の index.ts は elkjs を読み込むので使わず、各図の parser・layout・renderer を直に束ねる。
+track(await build({
+  metafile: true,
+  stdin: {
+    contents: [
+      "import { parseSequenceDiagram } from './node_modules/beautiful-mermaid/src/sequence/parser.ts'",
+      "import { layoutSequenceDiagram } from './node_modules/beautiful-mermaid/src/sequence/layout.ts'",
+      "import { renderSequenceSvg } from './node_modules/beautiful-mermaid/src/sequence/renderer.ts'",
+      "import { parseXYChart } from './node_modules/beautiful-mermaid/src/xychart/parser.ts'",
+      "import { layoutXYChart } from './node_modules/beautiful-mermaid/src/xychart/layout.ts'",
+      "import { renderXYChartSvg } from './node_modules/beautiful-mermaid/src/xychart/renderer.ts'",
+      'export const renderMermaidSvg = (text, colors, font) => {',
+      "  const lines = text.split('\\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('%%'))",
+      "  const head = (lines[0] ?? '').toLowerCase()",
+      "  if (/^sequencediagram\\s*$/.test(head)) return renderSequenceSvg(layoutSequenceDiagram(parseSequenceDiagram(lines), {}), colors, font, true)",
+      "  if (/^xychart(-beta)?\\b/.test(head)) return renderXYChartSvg(layoutXYChart(parseXYChart(lines), {}), colors, font, true, false)",
+      '  return null',
+      '}',
+    ].join('\n'),
+    resolveDir: '.',
+    loader: 'ts',
+  },
+  bundle: true,
+  format: 'esm',
+  platform: 'neutral',
+  target: 'es2023',
+  minifySyntax: true,
+  minifyWhitespace: true,
+  outfile: '../hooks/vendor/mermaid-svg.js',
+  legalComments: 'none',
+}))
+
 for (const name of bundledPackages) {
   const { license } = JSON.parse(readFileSync(`node_modules/${name}/package.json`, 'utf8'))
   if (license !== 'MIT') throw new Error(`${name} is ${license}, only MIT may be bundled`)

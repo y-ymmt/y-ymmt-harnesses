@@ -17,6 +17,7 @@ The notices below are prismantis's own `docs/THIRD_PARTY_NOTICES.md`, kept as wr
 ## Bundled libraries
 
 `hooks/vendor/mermaid-text.js` is built from [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid) 1.1.3 by `scripts/build-vendor.mjs`.
+(reply-prism: `hooks/vendor/mermaid-svg.js` is built the same way from its sequence and xychart SVG renderers, under the same license.)
 
 ```
 MIT License
