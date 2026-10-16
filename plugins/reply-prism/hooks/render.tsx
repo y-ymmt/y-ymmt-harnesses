@@ -228,9 +228,12 @@ const renderInline = (el: ElementTable, style: Style, nodes: Inline[], keyBase: 
         // 「開く:」の行に同じ番号のボタンがあるリンクには、後ろに `[番号]` を付ける
         const number = style.linkNumbers?.get(n.href)
         const tag = number === undefined ? null : <Text dimColor>{` [${number}]`}</Text>
+        const label = <Text color={t.link} underline>{n.text === n.href ? n.href : n.text}</Text>
+        // デスクトップなど端末以外では、https の URL を Link（アンカー）で包んで押すと開けるようにする
+        const shown = style.urlLinks && /^https:\/\//i.test(n.href) ? <el.Link href={n.href}>{label}</el.Link> : label
         return n.text === n.href
-          ? <Text key={key}><Text color={t.link} underline>{n.href}</Text>{tag}</Text>
-          : <Text key={key}><Text color={t.link} underline>{n.text}</Text>{tag}<Text dimColor> ({n.href})</Text></Text>
+          ? <Text key={key}>{shown}{tag}</Text>
+          : <Text key={key}>{shown}{tag}<Text dimColor> ({n.href})</Text></Text>
       }
       case 'number':
         return <Text key={key} color={t.number}>{n.text}</Text>

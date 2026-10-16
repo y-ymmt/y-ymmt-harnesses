@@ -54,6 +54,11 @@ export type Style = {
    * SVG にできない図は標準のコードブロックのまま出す。register.tsx が端末以外で true にする。
    */
   svgDiagrams?: boolean
+  /**
+   * reply-prism: 返事の `https:` の URL を Link で包み、押すと開けるようにするか。デスクトップアプリなどでは Link が
+   * アンカーになる。端末は URL を端末自身がリンクにするので包まない。register.tsx が端末以外で true にする。
+   */
+  urlLinks?: boolean
   /** 「開く:」の行に URL のボタンを出したリンクの番号（URL → 番号）。本文のリンクの後ろに `[番号]` を付けるのに使う。register.tsx が返事ごとに入れる。 */
   linkNumbers?: ReadonlyMap<string, number>
   /** 危ない語。`dangerHighlight` が false なら null。 */

@@ -297,7 +297,7 @@ export const register: Register = (on, options) => {
   const resolved = resolveStyle(options)
   // 端末以外（デスクトップアプリなど）は白地のことが多いので、配色は `desktopTheme` のものにする。
   // 表は標準の Markdown で、mermaid は SVG で描く（文字の幅がそろわず、文字数で組んだ表や罫線の図は崩れるため）
-  const style: Style = { ...resolved, theme: desktopThemeOf(options), nativeTables: true, svgDiagrams: true }
+  const style: Style = { ...resolved, theme: desktopThemeOf(options), nativeTables: true, svgDiagrams: true, urlLinks: true }
   const where = { cwd: '', home: '' }
   // パスのリンク（OSC 8）は端末でだけ描く。デスクトップなどは https 以外のリンクを描かないため。
   const terminalStyle: Style = { ...resolved, fileLinks: makeLinker(style.editor, style.editorUrlTemplate, where), fileTargets: makeResolver(style.editor, style.editorUrlTemplate, where) }

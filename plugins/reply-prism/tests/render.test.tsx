@@ -309,6 +309,21 @@ test('on the desktop a short Japanese run between numbers is not its own Text, s
   }
 })
 
+test('on the desktop an https URL in a reply is a Link that opens it; the terminal leaves URLs to itself', async $ => {
+  const text = '詳しくは https://example.com/a と [手順書](https://example.com/b) を見る。http://example.com/c は包まない'
+  const desktop = await $.ui.mount({ ...draw(text), surface: 'desktop' })
+  const links = await desktop.findAll({ type: 'Link' })
+  expect(links.map(link => link.props.href)).toEqual(['https://example.com/a', 'https://example.com/b'])
+  // Link の text には href も入るので、見える字は子の Text で見る
+  const shownOf = (node: unknown): string =>
+    typeof node === 'string' ? node : ((node as { children?: unknown[] }).children ?? []).map(shownOf).join('')
+  expect(links.map(link => link.children.map(shownOf).join(''))).toEqual(['https://example.com/a', '手順書'])
+  await desktop.unmount()
+  const terminal = await $.ui.mount({ ...draw(text), surface: 'terminal' })
+  expect((await terminal.findAll({ type: 'Link' })).map(link => link.props.href).filter(href => String(href).includes('example.com'))).toEqual([])
+  await terminal.unmount()
+})
+
 test('desktopTheme picks the desktop palette; same follows theme; the terminal keeps theme', { options: { theme: 'tokyo-night', desktopTheme: 'solarized-light' } }, async $ => {
   for (const [surface, preset] of [['terminal', 'tokyo-night'], ['desktop', 'solarized-light']] as const) {
     const ui = await $.ui.mount({ ...draw('残り 42 件'), surface })
