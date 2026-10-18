@@ -391,6 +391,16 @@ test('back-to-back tables and diagrams share a wrapping row', async $ => {
   await ui.unmount()
 })
 
+test('on the desktop a table followed by a diagram stays out of the wrapping row, so it keeps the reply width and scrolls', async $ => {
+  const text = `${TABLE}\n\n${FLOW.replace('Flow:\n\n', '')}\n\nAfter.`
+  const ui = await $.ui.mount({ ...draw(text), surface: 'desktop' })
+  const rows = (await ui.findAll({ type: 'Box' })).filter(b => b.props.flexWrap === 'wrap')
+  expect(rows.some(r => r.text.includes('Service')), '表は横に並べる行に入れない').toBe(false)
+  const wrapper = (await ui.findAll({ type: 'Box' })).find(b => b.props.minWidth === 0 && b.text.includes('Service'))
+  expect(wrapper, '表は親の幅に収める').toBeDefined()
+  await ui.unmount()
+})
+
 test('code blocks, tables and quotes get a copy button', async ($, on) => {
   const copied: string[] = []
   on('ui.copy', (_, e) => {

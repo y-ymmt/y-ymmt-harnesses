@@ -755,7 +755,11 @@ export const renderBlocks = (el: ElementTable, style: Style, blocks: Block[], co
       </Box>
     )
   })
-  const isFigure = (b: number) => blocks[b]?.kind === 'table' || drawn.has(b)
+  // 標準の Markdown で描く表は並べない（行の中では中身の幅に伸びて右が切れ、表の横スクロールも効かなくなる）
+  const isFigure = (b: number) => {
+    const block = blocks[b]
+    return (block?.kind === 'table' && !isNativeTable(style, block)) || drawn.has(b)
+  }
   const out: RenderElement[] = []
   for (let b = 0; b < rendered.length; b++) {
     if (!isFigure(b) || !isFigure(b + 1)) {
