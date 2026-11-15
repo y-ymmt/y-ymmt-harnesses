@@ -1881,7 +1881,7 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const slot = slotKey(BAND_ORDER.promptTrail, PLUGIN)
     const stacked = (mine: JSX.Element) => (
-      <Box key={BAND_STACK} flexDirection="column">
+      <Box key={BAND_STACK} flexDirection="column" rowGap="xs">
         {stackBand(beneath, [mine])}
       </Box>
     )

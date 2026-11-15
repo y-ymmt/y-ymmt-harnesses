@@ -19,7 +19,12 @@ export const BAND_ORDER = {
 } as const
 
 const SLOT_PREFIX = 'y-ymmt-band:'
-/** 積み直した帯の外枠。外側のプラグインはこれを見つけたらばらす。 */
+/**
+ * 積み直した帯の外枠。外側のプラグインはこれを見つけたらばらす。
+ * どのプラグインが外枠を作っても同じ見た目になるよう、`<Box key={BAND_STACK} flexDirection="column" rowGap="xs">` で包む。
+ * デスクトップは縦に並べた子の間に自分では余白を入れないので、rowGap が無いとボタンの行どうしがくっつく
+ * （"xs" は端末では 0 行なので、端末の見た目は変わらない）。
+ */
 export const BAND_STACK = `${SLOT_PREFIX}stack`
 
 /** 並び順つきの枠の key。`<Box key={slotKey(...)}>` で自分の行を包む。 */
