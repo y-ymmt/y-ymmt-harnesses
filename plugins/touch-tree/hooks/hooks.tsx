@@ -607,7 +607,7 @@ export const register: Register = (on, options) => {
     )
 
     return (
-      <Box key={BAND_STACK} flexDirection="column" rowGap="xs">
+      <Box key={BAND_STACK} flexDirection="column" rowGap="sm">
         {stackBand(beneath, [button])}
       </Box>
     )

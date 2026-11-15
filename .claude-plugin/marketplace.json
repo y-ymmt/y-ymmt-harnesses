@@ -17,7 +17,7 @@
     {
       "name": "tokyo-board",
       "description": "プロンプト上の帯に東京の天気・運行情報・警報・IT/AI ニュースを夕方から表示する Mod",
-      "version": "0.8.1",
+      "version": "0.8.2",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/tokyo-board",
       "category": "productivity"
@@ -25,7 +25,7 @@
     {
       "name": "touch-tree",
       "description": "このセッションで Claude が読んだ・編集したファイルを、リポジトリのツリーに沿ってペインに出す Mod",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/touch-tree",
       "category": "productivity"
@@ -33,7 +33,7 @@
     {
       "name": "next-prompts",
       "description": "ターンが終わるたびに、次に打ちそうな依頼の候補をいくつかプロンプトの上に並べ、押すと入力欄に入れる Mod",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/next-prompts",
       "category": "productivity"
@@ -49,7 +49,7 @@
     {
       "name": "prompt-trail",
       "description": "このセッションで打ったプロンプトを帯の棒の列か縦のペインに並べ、ホバーで読み・クリックでその位置へ飛び・入力欄へ戻して再利用できる Mod。棒の色でそのターンの結果が分かる（prompt-rail の改変版）",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "author": { "name": "y-ymmt" },
       "source": "./plugins/prompt-trail",
       "category": "productivity"
