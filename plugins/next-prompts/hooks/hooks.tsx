@@ -443,7 +443,7 @@ export const register: Register = (on, options) => {
 
     const { Box, Text, Button } = $.ui.resolve(e)
     const row = (
-      <Box key={slotKey(BAND_ORDER.nextPrompts, 'next-prompts')} flexDirection="row" flexWrap="wrap" columnGap={GAP}>
+      <Box key={slotKey(BAND_ORDER.nextPrompts, 'next-prompts')} flexDirection="row" flexWrap="wrap" columnGap={GAP} rowGap="xs">
         <Text dimColor>{HEADING}</Text>
         {placed.map(item =>
           isDesktop ? (
@@ -465,7 +465,7 @@ export const register: Register = (on, options) => {
 
     // 入力バーのすぐ上（帯のいちばん下）に置く。どのプラグインが外側でも並びは band.ts の順になる。
     return (
-      <Box key={BAND_STACK} flexDirection="column">
+      <Box key={BAND_STACK} flexDirection="column" rowGap="xs">
         {stackBand(beneath, [row])}
       </Box>
     )

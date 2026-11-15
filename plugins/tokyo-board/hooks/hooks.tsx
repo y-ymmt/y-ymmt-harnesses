@@ -864,7 +864,7 @@ export const register: Register = (on, options) => {
       }
 
       return (
-        <Box key={BAND_STACK} flexDirection="column">
+        <Box key={BAND_STACK} flexDirection="column" rowGap="xs">
           {stackBand(beneath, [toggle])}
         </Box>
       )
@@ -886,12 +886,12 @@ export const register: Register = (on, options) => {
       const shownItem = items.length === 0 ? null : items[board.step % items.length]
 
       return (
-        <Box key={BAND_STACK} flexDirection="column">
+        <Box key={BAND_STACK} flexDirection="column" rowGap="xs">
           {stackBand(
             beneath,
             [
-              <Box key={slotKey(BAND_ORDER.board, 'tokyo-board')} flexDirection="column">
-                <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+              <Box key={slotKey(BAND_ORDER.board, 'tokyo-board')} flexDirection="column" rowGap="xs">
+                <Box flexDirection="row" flexWrap="wrap" columnGap={1} rowGap="xs">
                   {linkOf(`${board.placeName} ${SKY_NAME[board.sky]}`, forecastPageUrl(board.office))}
                   {facts.map(run => (
                     <Text color={run.color} dimColor={run.dimColor} bold={run.bold}>
@@ -912,7 +912,7 @@ export const register: Register = (on, options) => {
                   </Box>
                 ))}
                 {hasAlerts(alerts) ? (
-                  <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+                  <Box flexDirection="row" flexWrap="wrap" columnGap={1} rowGap="xs">
                     <Text color={alertColorOf(alerts)} bold={true}>
                       ⚠
                     </Text>
@@ -1069,7 +1069,7 @@ export const register: Register = (on, options) => {
     )
 
     return (
-      <Box key={BAND_STACK} flexDirection="column">
+      <Box key={BAND_STACK} flexDirection="column" rowGap="xs">
         {stackBand(beneath, [panels, toggle])}
       </Box>
     )
