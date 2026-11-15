@@ -21,9 +21,9 @@ export const BAND_ORDER = {
 const SLOT_PREFIX = 'y-ymmt-band:'
 /**
  * 積み直した帯の外枠。外側のプラグインはこれを見つけたらばらす。
- * どのプラグインが外枠を作っても同じ見た目になるよう、`<Box key={BAND_STACK} flexDirection="column" rowGap="xs">` で包む。
+ * どのプラグインが外枠を作っても同じ見た目になるよう、`<Box key={BAND_STACK} flexDirection="column" rowGap="sm">` で包む。
  * デスクトップは縦に並べた子の間に自分では余白を入れないので、rowGap が無いとボタンの行どうしがくっつく
- * （"xs" は端末では 0 行なので、端末の見た目は変わらない）。
+ * （"sm" は端末では 0 行なので、端末の見た目は変わらない。"xs" ではデスクトップで重なりは消えたが、ボタンがくっついて見えた）。
  */
 export const BAND_STACK = `${SLOT_PREFIX}stack`
 
